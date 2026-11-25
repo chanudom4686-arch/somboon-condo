@@ -1,6 +1,7 @@
-// LINE OA Webhook Handler with 3-Step Interactive Registration, Bilingual (TH/EN) Commands,
-// Follow Event Welcome, Admin Working Hours (12.00 - 24.00), and Meter Photo Attachment
-// Version 2.1
+// LINE OA Webhook Handler with Multi-Room Comma-Separated 3-Step Registration (e.g. "001,002"),
+// Multi-Room Bill/Receipt/Statement Support, Bilingual (TH/EN) Commands, Follow Event Welcome,
+// Admin Working Hours (12.00 - 24.00), and Meter Photo Attachment
+// Version 2.2
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -28,7 +29,7 @@ async function replyLineMessage(replyToken: string, messages: any[], accessToken
       },
       body: JSON.stringify({
         replyToken,
-        messages,
+        messages: messages.slice(0, 5), // LINE Messaging API allows max 5 bubbles per reply
       }),
     });
     if (!res.ok) {
@@ -53,10 +54,15 @@ function maskPhoneLast4(phone?: string | null): string {
   return `${prefix}XXXX`;
 }
 
-// Check if input text looks like a room number input (e.g. "001", "1", "645/001", "64-65", "064-065")
-function parseRoomNumberInput(rawText: string): string | null {
-  const trimmed = rawText.trim();
-  const withoutPrefix = trimmed.replace(/^ห้อง\s*/i, '').replace(/^room\s*/i, '').replace(/^645\//, '').trim();
+// Parse a single room token (e.g. "001", "1", "645/001", "64-65", "064-065")
+function parseSingleRoomToken(rawToken: string): string | null {
+  const trimmed = rawToken.trim();
+  if (!trimmed) return null;
+  const withoutPrefix = trimmed
+    .replace(/^ห้อง\s*/i, '')
+    .replace(/^room\s*/i, '')
+    .replace(/^645\//, '')
+    .trim();
 
   // Check paired room patterns (e.g., 64-65, 064-065, 144-145, 164-165, 186-187)
   if (/^(0?64-0?65|144-145|164-165|186-187)$/.test(withoutPrefix)) {
@@ -72,6 +78,31 @@ function parseRoomNumberInput(rawText: string): string | null {
   }
 
   return null;
+}
+
+// Parse single or comma-separated room numbers (e.g. "001" or "001,002" or "001, 002, 64-65")
+function parseRoomNumbersList(rawText: string): string[] | null {
+  const trimmed = rawText.trim();
+  if (!trimmed) return null;
+
+  const parts = trimmed
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const resolvedList: string[] = [];
+  for (const part of parts) {
+    const resolved = parseSingleRoomToken(part);
+    if (!resolved) {
+      return null; // Not a valid room number list
+    }
+    if (!resolvedList.includes(resolved)) {
+      resolvedList.push(resolved);
+    }
+  }
+
+  return resolvedList.length > 0 ? resolvedList : null;
 }
 
 export async function POST(req: NextRequest) {
@@ -214,7 +245,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             [
               {
                 type: 'text',
-                text: `📝 เริ่มต้นการลงทะเบียนผูกห้องชุด (ขั้นตอนที่ 1/2)\nRoom Registration (Step 1/2)\n\n👉 กรุณาพิมพ์ "เลขห้อง" ของท่านส่งมาในแชทนี้ครับ (เช่น 001, 087 หรือห้องคู่ 64-65)\nPlease enter your "Room Number" (e.g. 001, 087, or 64-65):\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                text: `📝 เริ่มต้นการลงทะเบียนผูกห้องชุด (ขั้นตอนที่ 1/2)\nRoom Registration (Step 1/2)\n\n👉 กรุณาพิมพ์ "เลขห้อง" ของท่านส่งมาในแชทนี้ครับ\n• กรณีห้องเดียว พิมพ์เช่น: 001 (หรือห้องคู่ 64-65)\n• กรณีมีหลายห้อง ให้พิมพ์คั่นด้วยลูกน้ำ (,) ไปเรื่อยๆ เช่น: 001,002,005\n\nPlease enter your Room Number:\n• Single room: e.g. 001 (or 64-65)\n• Multiple rooms (comma-separated): e.g. 001,002,005\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
               },
             ],
             accessToken
@@ -222,23 +253,25 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           continue;
         }
 
-        // C. Interactive Registration STEP 2: Resident enters Room Number (e.g. "001", "87", "645/001", "64-65")
-        const parsedRoomNo = parseRoomNumberInput(text);
-        if (parsedRoomNo) {
-          const { data: roomData, error: roomErr } = await supabase
+        // C. Interactive Registration STEP 2: Resident enters Single or Multiple Room Numbers (e.g. "001" or "001,002,005")
+        const parsedRoomNos = parseRoomNumbersList(text);
+        if (parsedRoomNos && parsedRoomNos.length > 0) {
+          const { data: foundRoomsData, error: roomErr } = await supabase
             .from('rooms')
             .select('*')
-            .eq('room_no', parsedRoomNo)
+            .in('room_no', parsedRoomNos)
             .neq('status', 'รวมห้องคู่')
-            .maybeSingle();
+            .order('room_no', { ascending: true });
 
-          if (!roomData || roomErr) {
+          const foundRooms = foundRoomsData || [];
+
+          if (foundRooms.length === 0 || roomErr) {
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `⚠️ ไม่พบข้อมูลห้อง ${formatRoomNo(parsedRoomNo)} ในระบบ\nRoom ${formatRoomNo(parsedRoomNo)} was not found.\n\nกรุณาพิมพ์เลขห้อง 3 หลักอีกครั้ง (เช่น 001 ถึง 195)\nPlease enter a valid 3-digit room number (001 - 195).\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                  text: `⚠️ ไม่พบข้อมูลห้อง ${parsedRoomNos.map((r) => formatRoomNo(r)).join(', ')} ในระบบ\nRoom not found.\n\nกรุณาพิมพ์เลขห้อง 3 หลักอีกครั้ง (เช่น 001 หรือหลายห้อง 001,002)\nPlease enter valid room numbers (e.g. 001 or 001,002).\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -246,22 +279,33 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             continue;
           }
 
-          const cleanOwnerPhone = (roomData.owner_phone || '').replace(/[^0-9]/g, '');
-          const cleanTenantPhone = (roomData.tenant_phone || '').replace(/[^0-9]/g, '');
-          const hasOwnerPhone = cleanOwnerPhone.length >= 4;
-          const hasTenantPhone = cleanTenantPhone.length >= 4;
+          const roomsWithPhone = foundRooms.filter((r) => {
+            const oClean = (r.owner_phone || '').replace(/[^0-9]/g, '');
+            const tClean = (r.tenant_phone || '').replace(/[^0-9]/g, '');
+            return oClean.length >= 4 || tClean.length >= 4;
+          });
 
-          if (!hasOwnerPhone && !hasTenantPhone) {
+          const roomsWithoutPhone = foundRooms.filter((r) => {
+            const oClean = (r.owner_phone || '').replace(/[^0-9]/g, '');
+            const tClean = (r.tenant_phone || '').replace(/[^0-9]/g, '');
+            return oClean.length < 4 && tClean.length < 4;
+          });
+
+          if (roomsWithPhone.length === 0) {
             await supabase
               .from('condo_config')
               .upsert({ key: stateKey, value: '', updated_at: new Date().toISOString() }, { onConflict: 'key' });
 
+            const noPhoneDetails = roomsWithoutPhone
+              .map((r) => `• ห้อง ${formatRoomNo(r.room_no)} (${r.owner_name || r.tenant_name || 'เจ้าของห้อง'})`)
+              .join('\n');
+
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `🏢 ข้อมูลห้องชุด / Room: ${formatRoomNo(parsedRoomNo)}\n👤 ชื่อ-นามสกุล / Name: ${roomData.owner_name || roomData.tenant_name || '-'}\n\n⚠️ ห้องนี้ยังไม่มีเบอร์โทรศัพท์บันทึกในระบบ กรุณาพิมพ์ชื่อและเบอร์โทรศัพท์ของท่านทิ้งไว้ในแชทนี้ เพื่อให้แอดมินบันทึกข้อมูลให้ครับ\nNo phone number is registered for this room yet. Please leave your name and phone number in this chat for our admin.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: `🏢 ข้อมูลห้องชุด / Room Info:\n${noPhoneDetails}\n\n⚠️ ห้องข้างต้นยังไม่มีเบอร์โทรศัพท์บันทึกในระบบ กรุณาพิมพ์ชื่อและเบอร์โทรศัพท์ของท่านทิ้งไว้ในแชทนี้ เพื่อให้แอดมินบันทึกข้อมูลให้ครับ\nNo phone number is registered for the room(s) above yet. Please leave your name and phone number in this chat for our admin.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -269,26 +313,51 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             continue;
           }
 
-          // Save selected room_no to pending state so Step 3 (4 digits) knows which room to verify
+          // Save comma-separated list of roomsWithPhone to pending state for Step 3 verification
+          const pendingValue = roomsWithPhone.map((r) => r.room_no).join(',');
           await supabase
             .from('condo_config')
             .upsert(
-              { key: stateKey, value: parsedRoomNo, updated_at: new Date().toISOString() },
+              { key: stateKey, value: pendingValue, updated_at: new Date().toISOString() },
               { onConflict: 'key' }
             );
 
-          const infoLines: string[] = [];
-          if (roomData.owner_name || hasOwnerPhone) {
-            infoLines.push(`👤 ชื่อ-นามสกุล / Name: คุณ ${roomData.owner_name || 'เจ้าของห้อง (Owner)'}`);
-            if (hasOwnerPhone) {
-              infoLines.push(`📞 เบอร์โทรศัพท์ / Phone: ${maskPhoneLast4(roomData.owner_phone)}`);
+          const roomSummaryLines: string[] = [];
+          roomsWithPhone.forEach((r, idx) => {
+            const oClean = (r.owner_phone || '').replace(/[^0-9]/g, '');
+            const tClean = (r.tenant_phone || '').replace(/[^0-9]/g, '');
+            const hasOwnerPhone = oClean.length >= 4;
+            const hasTenantPhone = tClean.length >= 4;
+
+            if (roomsWithPhone.length === 1) {
+              roomSummaryLines.push(`🏢 ห้องชุด / Room: ${formatRoomNo(r.room_no)}`);
+              if (r.owner_name || hasOwnerPhone) {
+                roomSummaryLines.push(`👤 ชื่อ-นามสกุล / Name: คุณ ${r.owner_name || 'เจ้าของห้อง (Owner)'}`);
+                if (hasOwnerPhone) {
+                  roomSummaryLines.push(`📞 เบอร์โทรศัพท์ / Phone: ${maskPhoneLast4(r.owner_phone)}`);
+                }
+              }
+              if (r.tenant_name || hasTenantPhone) {
+                roomSummaryLines.push(`👤 ผู้เช่า / Tenant: คุณ ${r.tenant_name || 'ผู้เช่า (Tenant)'}`);
+                if (hasTenantPhone) {
+                  roomSummaryLines.push(`📞 เบอร์โทรผู้เช่า / Tenant Phone: ${maskPhoneLast4(r.tenant_phone)}`);
+                }
+              }
+            } else {
+              const displayName = r.owner_name || r.tenant_name || 'เจ้าของห้อง';
+              const displayMaskedPhone = hasOwnerPhone
+                ? maskPhoneLast4(r.owner_phone)
+                : maskPhoneLast4(r.tenant_phone);
+              roomSummaryLines.push(
+                `${idx + 1}) ห้อง ${formatRoomNo(r.room_no)} — คุณ ${displayName} (📞 ${displayMaskedPhone})`
+              );
             }
-          }
-          if (roomData.tenant_name || hasTenantPhone) {
-            infoLines.push(`👤 ผู้เช่า / Tenant: คุณ ${roomData.tenant_name || 'ผู้เช่า (Tenant)'}`);
-            if (hasTenantPhone) {
-              infoLines.push(`📞 เบอร์โทรผู้เช่า / Tenant Phone: ${maskPhoneLast4(roomData.tenant_phone)}`);
-            }
+          });
+
+          if (roomsWithoutPhone.length > 0) {
+            roomSummaryLines.push(
+              `\n*(หมายเหตุ: ห้อง ${roomsWithoutPhone.map((r) => formatRoomNo(r.room_no)).join(', ')} ยังไม่มีเบอร์โทรในระบบ โปรดแจ้งเบอร์โทรกับแอดมินเพิ่มเติม)*`
+            );
           }
 
           await replyLineMessage(
@@ -296,7 +365,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             [
               {
                 type: 'text',
-                text: `🏢 พบข้อมูลห้องชุด / Room Found: ${formatRoomNo(parsedRoomNo)} (ขั้นตอนที่ 2/2)\n${infoLines.join('\n')}\n\n🔑 กรุณาพิมพ์ "ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์" (แทนที่ XXXX) ส่งมาในแชทนี้เพื่อยืนยันการลงทะเบียนครับ\nPlease reply with the "last 4 digits of your phone number" (replacing XXXX) to complete registration.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                text: `🏢 พบข้อมูลห้องชุด (${roomsWithPhone.length} ห้อง) — ขั้นตอนที่ 2/2\nRooms Found (${roomsWithPhone.length}) — Step 2/2\n\n${roomSummaryLines.join('\n')}\n\n🔑 กรุณาพิมพ์ "ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์" (แทนที่ XXXX) ส่งมาในแชทนี้เพื่อยืนยันการลงทะเบียนครับ\nPlease reply with the "last 4 digits of your phone number" (replacing XXXX) to complete registration.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
               },
             ],
             accessToken
@@ -314,7 +383,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               [
                 {
                   type: 'text',
-                  text: `⚠️ กรุณาพิมพ์ "เลขห้อง 3 หลัก" ของท่านก่อนครับ (เช่น 001) แล้วจึงกรอกเบอร์โทรศัพท์ 4 ตัวท้าย\nPlease enter your "3-digit Room Number" first (e.g. 001) before entering the last 4 digits of your phone number.\n\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                  text: `⚠️ กรุณาพิมพ์ "เลขห้อง" ของท่านก่อนครับ (เช่น 001 หรือหลายห้อง 001,002) แล้วจึงกรอกเบอร์โทรศัพท์ 4 ตัวท้าย\nPlease enter your "Room Number(s)" first (e.g. 001 or 001,002) before entering the last 4 digits of your phone number.\n\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -322,13 +391,20 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             continue;
           }
 
-          const { data: roomData } = await supabase
+          const pendingRoomNos = pendingState
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+          const { data: pendingRoomsData } = await supabase
             .from('rooms')
             .select('*')
-            .eq('room_no', pendingState)
-            .maybeSingle();
+            .in('room_no', pendingRoomNos)
+            .order('room_no', { ascending: true });
 
-          if (!roomData) {
+          const pendingRooms = pendingRoomsData || [];
+
+          if (pendingRooms.length === 0) {
             await supabase
               .from('condo_config')
               .upsert(
@@ -340,7 +416,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               [
                 {
                   type: 'text',
-                  text: `⚠️ กรุณาพิมพ์เลขห้อง 3 หลักของท่านใหม่อีกครั้งครับ (เช่น 001)\nPlease enter your 3-digit room number again (e.g. 001).`,
+                  text: `⚠️ กรุณาพิมพ์เลขห้องของท่านใหม่อีกครั้งครับ (เช่น 001 หรือหลายห้อง 001,002)\nPlease enter your room number(s) again (e.g. 001 or 001,002).`,
                 },
               ],
               accessToken
@@ -348,46 +424,99 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             continue;
           }
 
-          const cleanOwnerPhone = (roomData.owner_phone || '').replace(/[^0-9]/g, '');
-          const cleanTenantPhone = (roomData.tenant_phone || '').replace(/[^0-9]/g, '');
-          const ownerMatch = cleanOwnerPhone.length >= 4 && cleanOwnerPhone.endsWith(cleanDigits);
-          const tenantMatch = cleanTenantPhone.length >= 4 && cleanTenantPhone.endsWith(cleanDigits);
+          const matchedRooms = pendingRooms.filter((r) => {
+            const oClean = (r.owner_phone || '').replace(/[^0-9]/g, '');
+            const tClean = (r.tenant_phone || '').replace(/[^0-9]/g, '');
+            return (
+              (oClean.length >= 4 && oClean.endsWith(cleanDigits)) ||
+              (tClean.length >= 4 && tClean.endsWith(cleanDigits))
+            );
+          });
 
-          if (ownerMatch || tenantMatch) {
+          const remainingRooms = pendingRooms.filter((r) => !matchedRooms.some((m) => m.room_no === r.room_no));
+
+          if (matchedRooms.length > 0) {
+            const matchedRoomNos = matchedRooms.map((r) => r.room_no);
             await supabase
               .from('rooms')
               .update({
                 line_user_id: lineUserId,
                 updated_at: new Date().toISOString(),
               })
-              .eq('room_no', pendingState);
+              .in('room_no', matchedRoomNos);
 
+            if (remainingRooms.length > 0) {
+              // Some rooms matched this phone number, while remaining rooms have a different phone number
+              const nextPendingValue = remainingRooms.map((r) => r.room_no).join(',');
+              await supabase
+                .from('condo_config')
+                .upsert(
+                  { key: stateKey, value: nextPendingValue, updated_at: new Date().toISOString() },
+                  { onConflict: 'key' }
+                );
+
+              const remainingListText = remainingRooms
+                .map(
+                  (r) =>
+                    `• ห้อง ${formatRoomNo(r.room_no)} — คุณ ${r.owner_name || r.tenant_name || '-'} (📞 ${maskPhoneLast4(
+                      r.owner_phone || r.tenant_phone
+                    )})`
+                )
+                .join('\n');
+
+              await replyLineMessage(
+                replyToken,
+                [
+                  {
+                    type: 'text',
+                    text: `✅ ลงทะเบียนผูกห้อง ${matchedRooms.map((r) => formatRoomNo(r.room_no)).join(', ')} สำเร็จแล้วครับ!\n\n📌 ยังเหลือห้องที่ใช้เบอร์โทรศัพท์อื่นอีก ${remainingRooms.length} ห้อง:\n${remainingListText}\n\n🔑 กรุณาพิมพ์ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์ห้องที่เหลือต่อได้เลยครับ\nPlease enter the last 4 digits of the phone number for the remaining room(s).`,
+                  },
+                ],
+                accessToken
+              );
+              continue;
+            }
+
+            // All requested rooms matched! Clear pending state
             await supabase
               .from('condo_config')
               .upsert({ key: stateKey, value: '', updated_at: new Date().toISOString() }, { onConflict: 'key' });
 
-            const personName = ownerMatch
-              ? roomData.owner_name || 'เจ้าของห้อง (Owner)'
-              : roomData.tenant_name || 'ผู้เช่า (Tenant)';
+            // Fetch all rooms currently linked to this user to display complete list
+            const { data: allUserRooms } = await supabase
+              .from('rooms')
+              .select('room_no, owner_name, tenant_name')
+              .eq('line_user_id', lineUserId)
+              .neq('status', 'รวมห้องคู่')
+              .order('room_no', { ascending: true });
+
+            const linkedRoomLabels = (allUserRooms || matchedRooms)
+              .map((r) => formatRoomNo(r.room_no))
+              .join(', ');
+            const firstMatched = matchedRooms[0];
+            const personName =
+              firstMatched.owner_name || firstMatched.tenant_name || 'เจ้าของร่วม/ผู้พักอาศัย';
 
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `🎉 ลงทะเบียนผูกห้อง ${formatRoomNo(pendingState)} สำเร็จแล้วครับ!\nRegistration Complete for Room ${formatRoomNo(pendingState)}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName}\n\n📌 คำสั่งตรวจสอบข้อมูลอัตโนมัติ (Thai / English Commands):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้และรูปมิเตอร์ / Current bill & meter photo\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Payment receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "รูปมิเตอร์" หรือ "meter" — ดูรูปถ่ายหน้าปัดมิเตอร์ / Meter photo\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ยอดเงินระดมทุนซ่อมตึก / Maintenance fund\n• พิมพ์ "การเงิน" หรือ "finance" — สรุปรายรับ-รายจ่ายตึก / Building finance\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ช่องทางโอนเงิน / Bank account\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: `🎉 ลงทะเบียนผูกห้อง ${linkedRoomLabels} สำเร็จแล้วครับ!\nRegistration Complete for Room(s): ${linkedRoomLabels}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName}\n\n📌 คำสั่งตรวจสอบข้อมูลอัตโนมัติ (Thai / English Commands):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้และรูปมิเตอร์ทุกห้องที่ผูกไว้ / Current bill & meter photo\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Payment receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "รูปมิเตอร์" หรือ "meter" — ดูรูปถ่ายหน้าปัดมิเตอร์ / Meter photo\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ยอดเงินระดมทุนซ่อมตึก / Maintenance fund\n• พิมพ์ "การเงิน" หรือ "finance" — สรุปรายรับ-รายจ่ายตึก / Building finance\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ช่องทางโอนเงิน / Bank account\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
             );
           } else {
-            const masked = maskPhoneLast4(roomData.owner_phone || roomData.tenant_phone);
+            const maskedSummary = pendingRooms
+              .map((r) => `${formatRoomNo(r.room_no)} (${maskPhoneLast4(r.owner_phone || r.tenant_phone)})`)
+              .join(', ');
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `❌ ตัวเลข 4 ตัวท้าย (${cleanDigits}) ไม่ตรงกับเบอร์โทรศัพท์ที่ลงทะเบียนไว้ของห้อง ${formatRoomNo(pendingState)} (${masked})\nThe last 4 digits (${cleanDigits}) do not match our records for Room ${formatRoomNo(pendingState)} (${masked}).\n\n• กรุณาพิมพ์ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์อีกครั้ง\n  Please enter the last 4 digits again.\n• หรือพิมพ์เลขห้องใหม่ (เช่น 001) หากต้องการเปลี่ยนห้อง\n  Or type a different room number (e.g. 001).\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: `❌ ตัวเลข 4 ตัวท้าย (${cleanDigits}) ไม่ตรงกับเบอร์โทรศัพท์ที่ลงทะเบียนไว้ของห้อง ${maskedSummary}\nThe last 4 digits (${cleanDigits}) do not match our records.\n\n• กรุณาพิมพ์ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์อีกครั้ง\n  Please enter the last 4 digits again.\n• หรือพิมพ์เลขห้องใหม่ (เช่น 001 หรือ 001,002) หากต้องการเปลี่ยนห้อง\n  Or type room number(s) again (e.g. 001 or 001,002).\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -458,7 +587,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               [
                 {
                   type: 'text',
-                  text: `⚠️ เบอร์โทรศัพท์ 4 ตัวท้าย (${phoneSuffix}) ไม่ตรงกับเบอร์ที่ลงทะเบียนไว้กับห้อง ${formatRoomNo(roomPrefix)} (${maskPhoneLast4(roomData.owner_phone || roomData.tenant_phone)})\n\nกรุณาพิมพ์เลขห้อง 3 หลัก (เช่น ${rawPrefix}) หรือพิมพ์ "ลงทะเบียน" / "Register" เพื่อตรวจสอบข้อมูลห้องครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                  text: `⚠️ เบอร์โทรศัพท์ 4 ตัวท้าย (${phoneSuffix}) ไม่ตรงกับเบอร์ที่ลงทะเบียนไว้กับห้อง ${formatRoomNo(roomPrefix)} (${maskPhoneLast4(roomData.owner_phone || roomData.tenant_phone)})\n\nกรุณาพิมพ์เลขห้อง (เช่น ${rawPrefix} หรือหลายห้อง 001,002) หรือพิมพ์ "ลงทะเบียน" / "Register" เพื่อตรวจสอบข้อมูลห้องครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -467,7 +596,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           continue;
         }
 
-        // F. Match against Customizable Auto-Reply Rules (Supports Both Thai & English Keywords)
+        // F. Match against Customizable Auto-Reply Rules (Supports Both Thai & English Keywords & Multi-Room Owners!)
         const matchedRule = rules.find((rule: any) => {
           const keywords = (rule.keyword || '')
             .split(',')
@@ -479,12 +608,13 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           return keywords.some((k: string) => lowerText.includes(k));
         });
 
-        const { data: linkedRooms } = await supabase
+        const { data: linkedRoomsData } = await supabase
           .from('rooms')
           .select('*')
           .eq('line_user_id', lineUserId)
-          .limit(1);
-        const linkedRoom = linkedRooms && linkedRooms.length > 0 ? linkedRooms[0] : null;
+          .neq('status', 'รวมห้องคู่')
+          .order('room_no', { ascending: true });
+        const linkedRoomsList = linkedRoomsData || [];
 
         const bankInfoText = `ธนาคาร (Bank): ${config.BANK_NAME || 'กสิกรไทย'}\nเลขที่บัญชี (Account No.): ${config.BANK_ACCOUNT_NO || '-'}\nชื่อบัญชี (Account Name): ${config.BANK_ACCOUNT_NAME || condoName}\nเลขผู้เสียภาษีนิติ: ${config.PROMPTPAY_NO || '-'}`;
 
@@ -492,119 +622,21 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           const mode = matchedRule.reply_mode || 'custom_text';
           const wantsMeterPhoto =
             mode === 'system_bill' || (matchedRule.reply_text || '').includes('{meter_photo}');
+          const isPerRoomMode =
+            ['system_bill', 'system_receipt', 'system_statement'].includes(mode) || wantsMeterPhoto;
 
-          if (
-            (['system_bill', 'system_receipt', 'system_statement'].includes(mode) || wantsMeterPhoto) &&
-            !linkedRoom
-          ) {
+          if (isPerRoomMode && linkedRoomsList.length === 0) {
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\nPlease register your room before viewing bills, meter photos, or statements.\n\n📌 วิธีลงทะเบียน / How to Register:\nกดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์คำว่า "ลงทะเบียน" / "Register" (หรือพิมพ์เลขห้อง 3 หลัก เช่น 001)\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\nPlease register your room before viewing bills, meter photos, or statements.\n\n📌 วิธีลงทะเบียน / How to Register:\nกดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์คำว่า "ลงทะเบียน" / "Register" (หรือพิมพ์เลขห้อง เช่น 001 หรือหลายห้อง 001,002)\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
             );
             continue;
-          }
-
-          let roomNoFormatted = linkedRoom ? formatRoomNo(linkedRoom.room_no) : 'ยังไม่ผูกห้อง (Not Linked)';
-          let ownerName = linkedRoom ? (linkedRoom.owner_name || linkedRoom.tenant_name || 'เจ้าของห้อง') : '-';
-          let prevMeter = linkedRoom ? Number(linkedRoom.latest_meter) || 0 : 0;
-          let currMeter = prevMeter;
-          let waterUnits = 0;
-          let waterOnlyAmt = '0.00';
-          let wastewaterOnlyAmt = '0.00';
-          let waterTotal = '0.00';
-          let commonFee = '0.00';
-          let extraItems = '';
-          let totalDue = '0.00';
-          let paymentStatus = '⏳ รอชำระ / Pending';
-          let meterPhotoUrl: string | null = null;
-
-          if (linkedRoom) {
-            const { data: logData } = await supabase
-              .from('meter_logs')
-              .select('*')
-              .eq('room_no', linkedRoom.room_no)
-              .eq('period', currentPeriod)
-              .maybeSingle();
-
-            meterPhotoUrl = logData?.meter_photo_url || null;
-            const pMeter = logData ? Number(logData.prev_meter) : Number(linkedRoom.latest_meter) || 0;
-            const cMeter = logData ? Number(logData.curr_meter) : pMeter;
-            const bill = calculateBill(
-              linkedRoom,
-              cMeter,
-              currentPeriod,
-              config,
-              logData ? Number(logData.special_items) || 0 : 0,
-              logData?.special_items_note || logData?.note || '',
-              Number(linkedRoom.outstanding_balance) || 0,
-              pMeter,
-              logData ? Number(logData.late_fee) || 0 : 0
-            );
-
-            prevMeter = bill.prev_meter;
-            currMeter = bill.curr_meter;
-            waterUnits = bill.units_used;
-            waterOnlyAmt = bill.water_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
-            wastewaterOnlyAmt = bill.wastewater_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
-            waterTotal = `${waterOnlyAmt} บาท (35 บ./หน่วย)\n• ค่าบำบัดน้ำเสีย: ${wastewaterOnlyAmt}`;
-            commonFee = bill.common_fee.toLocaleString('th-TH', { minimumFractionDigits: 2 });
-
-            const extraLines: string[] = [];
-            if (bill.special_items_note && bill.special_items_note.includes('|')) {
-              bill.special_items_note.split('|').forEach((part) => {
-                if (part.trim()) extraLines.push(`• ${part.trim()}`);
-              });
-            } else if (bill.special_items !== 0) {
-              extraLines.push(
-                `• ${bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'} (${bill.special_items_note || '-'}): ${bill.special_items > 0 ? '+' : ''}${bill.special_items.toLocaleString()} บาท`
-              );
-            }
-            if (bill.late_fee > 0) {
-              extraLines.push(`• เบี้ยปรับล่าช้า (Late Fee): +${bill.late_fee.toLocaleString()} บาท`);
-            }
-            if (bill.contribution_deducted > 0) {
-              extraLines.push(`• หักเครดิตสมทบทุนซ่อมตึก (Fund Credit): -${bill.contribution_deducted.toLocaleString()} บาท`);
-            }
-            if (bill.prepaid_deducted > 0) {
-              extraLines.push(`• หักเงินฝากล่วงหน้า (Prepaid): -${bill.prepaid_deducted.toLocaleString()} บาท`);
-            }
-            if (bill.outstanding_balance > 0) {
-              extraLines.push(`• ยอดค้างชำระยกมา (Arrears): +${bill.outstanding_balance.toLocaleString()} บาท`);
-            }
-            extraItems = extraLines.length > 0 ? extraLines.join('\n') + '\n' : '';
-            totalDue = bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
-            paymentStatus = logData?.is_paid
-              ? `✅ ชำระแล้ว / Paid (${logData.paid_timestamp ? new Date(logData.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'เรียบร้อย'})`
-              : `⏳ รอชำระ / Unpaid (ครบกำหนดวันที่ / Due: ${dueDay})`;
-          }
-
-          let statement12mText = 'ยังไม่มีประวัติการชำระเงิน / No payment history yet';
-          if (linkedRoom && (mode === 'system_statement' || matchedRule.reply_text.includes('{statement_12m}'))) {
-            const { data: historyLogs } = await supabase
-              .from('meter_logs')
-              .select('*')
-              .eq('room_no', linkedRoom.room_no)
-              .order('period', { ascending: false })
-              .limit(12);
-
-            if (historyLogs && historyLogs.length > 0) {
-              statement12mText = historyLogs
-                .map((h: any) => {
-                  const paidDate = h.paid_timestamp
-                    ? new Date(h.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
-                    : '-';
-                  return `• รอบ ${h.period}: ${Number(h.total_amount).toLocaleString()} บ. — ${
-                    h.is_paid ? `✅ ชำระแล้ว/Paid (${paidDate})` : '⏳ ค้างชำระ/Unpaid'
-                  }`;
-                })
-                .join('\n');
-            }
           }
 
           let fundSummaryText = '';
@@ -649,36 +681,151 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             buildingFinanceText = `• รายรับรวมของอาคาร (Total Income): +${totalIn.toLocaleString()} บาท\n• รายจ่ายรวมของอาคาร (Total Expense): -${totalOut.toLocaleString()} บาท\n• สถานะดุลการเงินปัจจุบัน (Net Balance): ${netBal >= 0 ? `✅ คงเหลือสุทธิ +${netBal.toLocaleString()} บาท` : `⚠️ ติดลบ ${netBal.toLocaleString()} บาท`}`;
           }
 
-          const finalReply = (matchedRule.reply_text || '')
-            .replace(/\{meter_photo\}/g, '')
-            .replace(/ค่าน้ำ\+บำบัด:/g, 'ค่าน้ำประปา:')
-            .replace(/\{condo_name\}/g, condoName)
-            .replace(/\{room_no\}/g, roomNoFormatted)
-            .replace(/\{owner_name\}/g, ownerName)
-            .replace(/\{period\}/g, currentPeriod)
-            .replace(/\{prev_meter\}/g, String(prevMeter))
-            .replace(/\{curr_meter\}/g, String(currMeter))
-            .replace(/\{water_units\}/g, String(waterUnits))
-            .replace(/\{water_amount\}/g, waterOnlyAmt)
-            .replace(/\{wastewater_amount\}/g, wastewaterOnlyAmt)
-            .replace(/\{water_total\}/g, waterTotal)
-            .replace(/\{common_fee\}/g, commonFee)
-            .replace(/\{extra_items\}/g, extraItems)
-            .replace(/\{total_due\}/g, totalDue)
-            .replace(/\{payment_status\}/g, paymentStatus)
-            .replace(/\{due_date\}/g, dueDay)
-            .replace(/\{bank_info\}/g, bankInfoText)
-            .replace(/\{statement_12m\}/g, statement12mText)
-            .replace(/\{fund_summary\}/g, fundSummaryText)
-            .replace(/\{building_finance\}/g, buildingFinanceText)
-            .trim();
+          // Build response for 1 or multiple linked rooms
+          const targetRooms = linkedRoomsList.length > 0 ? linkedRoomsList : [null];
+          const renderedTexts: string[] = [];
+          const photoUrls: string[] = [];
 
+          for (const targetRoom of targetRooms) {
+            let roomNoFormatted = targetRoom ? formatRoomNo(targetRoom.room_no) : 'ยังไม่ผูกห้อง (Not Linked)';
+            let ownerName = targetRoom ? (targetRoom.owner_name || targetRoom.tenant_name || 'เจ้าของห้อง') : '-';
+            let prevMeter = targetRoom ? Number(targetRoom.latest_meter) || 0 : 0;
+            let currMeter = prevMeter;
+            let waterUnits = 0;
+            let waterOnlyAmt = '0.00';
+            let wastewaterOnlyAmt = '0.00';
+            let waterTotal = '0.00';
+            let commonFee = '0.00';
+            let extraItems = '';
+            let totalDue = '0.00';
+            let paymentStatus = '⏳ รอชำระ / Pending';
+
+            if (targetRoom) {
+              const { data: logData } = await supabase
+                .from('meter_logs')
+                .select('*')
+                .eq('room_no', targetRoom.room_no)
+                .eq('period', currentPeriod)
+                .maybeSingle();
+
+              if (logData?.meter_photo_url && logData.meter_photo_url.startsWith('https://')) {
+                photoUrls.push(logData.meter_photo_url);
+              }
+
+              const pMeter = logData ? Number(logData.prev_meter) : Number(targetRoom.latest_meter) || 0;
+              const cMeter = logData ? Number(logData.curr_meter) : pMeter;
+              const bill = calculateBill(
+                targetRoom,
+                cMeter,
+                currentPeriod,
+                config,
+                logData ? Number(logData.special_items) || 0 : 0,
+                logData?.special_items_note || logData?.note || '',
+                Number(targetRoom.outstanding_balance) || 0,
+                pMeter,
+                logData ? Number(logData.late_fee) || 0 : 0
+              );
+
+              prevMeter = bill.prev_meter;
+              currMeter = bill.curr_meter;
+              waterUnits = bill.units_used;
+              waterOnlyAmt = bill.water_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+              wastewaterOnlyAmt = bill.wastewater_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+              waterTotal = `${waterOnlyAmt} บาท (35 บ./หน่วย)\n• ค่าบำบัดน้ำเสีย: ${wastewaterOnlyAmt}`;
+              commonFee = bill.common_fee.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+
+              const extraLines: string[] = [];
+              if (bill.special_items_note && bill.special_items_note.includes('|')) {
+                bill.special_items_note.split('|').forEach((part) => {
+                  if (part.trim()) extraLines.push(`• ${part.trim()}`);
+                });
+              } else if (bill.special_items !== 0) {
+                extraLines.push(
+                  `• ${bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'} (${bill.special_items_note || '-'}): ${bill.special_items > 0 ? '+' : ''}${bill.special_items.toLocaleString()} บาท`
+                );
+              }
+              if (bill.late_fee > 0) {
+                extraLines.push(`• เบี้ยปรับล่าช้า (Late Fee): +${bill.late_fee.toLocaleString()} บาท`);
+              }
+              if (bill.contribution_deducted > 0) {
+                extraLines.push(`• หักเครดิตสมทบทุนซ่อมตึก (Fund Credit): -${bill.contribution_deducted.toLocaleString()} บาท`);
+              }
+              if (bill.prepaid_deducted > 0) {
+                extraLines.push(`• หักเงินฝากล่วงหน้า (Prepaid): -${bill.prepaid_deducted.toLocaleString()} บาท`);
+              }
+              if (bill.outstanding_balance > 0) {
+                extraLines.push(`• ยอดค้างชำระยกมา (Arrears): +${bill.outstanding_balance.toLocaleString()} บาท`);
+              }
+              extraItems = extraLines.length > 0 ? extraLines.join('\n') + '\n' : '';
+              totalDue = bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+              paymentStatus = logData?.is_paid
+                ? `✅ ชำระแล้ว / Paid (${logData.paid_timestamp ? new Date(logData.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'เรียบร้อย'})`
+                : `⏳ รอชำระ / Unpaid (ครบกำหนดวันที่ / Due: ${dueDay})`;
+            }
+
+            let statement12mText = 'ยังไม่มีประวัติการชำระเงิน / No payment history yet';
+            if (targetRoom && (mode === 'system_statement' || matchedRule.reply_text.includes('{statement_12m}'))) {
+              const { data: historyLogs } = await supabase
+                .from('meter_logs')
+                .select('*')
+                .eq('room_no', targetRoom.room_no)
+                .order('period', { ascending: false })
+                .limit(12);
+
+              if (historyLogs && historyLogs.length > 0) {
+                statement12mText = historyLogs
+                  .map((h: any) => {
+                    const paidDate = h.paid_timestamp
+                      ? new Date(h.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
+                      : '-';
+                    return `• รอบ ${h.period}: ${Number(h.total_amount).toLocaleString()} บ. — ${
+                      h.is_paid ? `✅ ชำระแล้ว/Paid (${paidDate})` : '⏳ ค้างชำระ/Unpaid'
+                    }`;
+                  })
+                  .join('\n');
+              }
+            }
+
+            const singleText = (matchedRule.reply_text || '')
+              .replace(/\{meter_photo\}/g, '')
+              .replace(/ค่าน้ำ\+บำบัด:/g, 'ค่าน้ำประปา:')
+              .replace(/\{condo_name\}/g, condoName)
+              .replace(/\{room_no\}/g, roomNoFormatted)
+              .replace(/\{owner_name\}/g, ownerName)
+              .replace(/\{period\}/g, currentPeriod)
+              .replace(/\{prev_meter\}/g, String(prevMeter))
+              .replace(/\{curr_meter\}/g, String(currMeter))
+              .replace(/\{water_units\}/g, String(waterUnits))
+              .replace(/\{water_amount\}/g, waterOnlyAmt)
+              .replace(/\{wastewater_amount\}/g, wastewaterOnlyAmt)
+              .replace(/\{water_total\}/g, waterTotal)
+              .replace(/\{common_fee\}/g, commonFee)
+              .replace(/\{extra_items\}/g, extraItems)
+              .replace(/\{total_due\}/g, totalDue)
+              .replace(/\{payment_status\}/g, paymentStatus)
+              .replace(/\{due_date\}/g, dueDay)
+              .replace(/\{bank_info\}/g, bankInfoText)
+              .replace(/\{statement_12m\}/g, statement12mText)
+              .replace(/\{fund_summary\}/g, fundSummaryText)
+              .replace(/\{building_finance\}/g, buildingFinanceText)
+              .trim();
+
+            renderedTexts.push(singleText);
+
+            // If this rule is a general/building rule (not per-room), only render once
+            if (!isPerRoomMode) break;
+          }
+
+          const finalReply = renderedTexts.join('\n\n━━━━━━━━━━━━━━\n\n');
           const replyBubbles: any[] = [{ type: 'text', text: finalReply || 'ข้อมูลรูปถ่ายมิเตอร์น้ำ' }];
-          if (wantsMeterPhoto && meterPhotoUrl && meterPhotoUrl.startsWith('https://')) {
-            replyBubbles.push({
-              type: 'image',
-              originalContentUrl: meterPhotoUrl,
-              previewImageUrl: meterPhotoUrl,
+
+          if (wantsMeterPhoto && photoUrls.length > 0) {
+            photoUrls.slice(0, 4).forEach((pUrl) => {
+              replyBubbles.push({
+                type: 'image',
+                originalContentUrl: pUrl,
+                previewImageUrl: pUrl,
+              });
             });
           }
 

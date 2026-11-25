@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 2.1 - 3-Step Interactive LINE Registration (Room -> Masked Phone XXXX -> 4-Digit Verification), Bilingual TH/EN Keywords, and Admin Working Hours (12.00-24.00)
+// Version 2.2 - Multi-Room Comma-Separated LINE Registration (001,002,...) & Multi-Room Bill Replies
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -939,7 +939,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.1
+                  ระบบบริหารนิติบุคคล v2.2
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -2310,13 +2310,13 @@ export default function AdminCondoApp() {
                     <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-xl space-y-1">
                       <div className="font-bold text-sky-300">2. พิมพ์ &quot;ลงทะเบียน&quot; / &quot;Register&quot;</div>
                       <p className="text-slate-300 text-[11px]">
-                        เมื่อกดริชเมนูหรือพิมพ์คำว่า <b>ลงทะเบียน</b> หรือ <b>register</b> ระบบจะส่งข้อความให้ลูกบ้านกรอก <b>เลขห้อง</b> (เช่น <code className="text-amber-300">001</code> หรือ <code className="text-amber-300">64-65</code>)
+                        เมื่อกดริชเมนูหรือพิมพ์คำว่า <b>ลงทะเบียน</b> ระบบจะให้ลูกบ้านกรอกเลขห้อง เช่น <code className="text-amber-300">001</code> หรือกรณีมีหลายห้องพิมพ์คั่นด้วยลูกน้ำ <code className="text-amber-300">001,002,005</code>
                       </p>
                     </div>
                     <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-xl space-y-1">
                       <div className="font-bold text-sky-300">3. แสดงชื่อ &amp; เบอร์โทรปิด XXXX</div>
                       <p className="text-slate-300 text-[11px]">
-                        เมื่อลูกบ้านพิมพ์เลขห้อง เช่น <code className="text-amber-300">001</code> ระบบจะเด้งแจ้ง <b>ชื่อ-นามสกุล</b> และ <b>เบอร์โทรศัพท์ที่ปิด 4 ตัวท้ายเป็น XXXX</b> (เช่น <code className="text-emerald-300">081-234-XXXX</code>)
+                        เมื่อลูกบ้านพิมพ์เลขห้อง (เช่น <code className="text-amber-300">001</code> หรือ <code className="text-amber-300">001,002</code>) ระบบจะแจ้ง <b>ชื่อ-นามสกุล</b> และ <b>เบอร์โทรที่ปิด 4 ตัวท้ายเป็น XXXX</b> ของทุกห้องที่เลือก
                       </p>
                     </div>
                     <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-xl space-y-1">
@@ -2717,7 +2717,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.1)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.2)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
