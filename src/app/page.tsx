@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 2.0 - 7-Digit LINE Registration Code (3-digit room + 4-digit phone suffix) & Tax ID Label Update
+// Version 2.1 - 3-Step Interactive LINE Registration (Room -> Masked Phone XXXX -> 4-Digit Verification), Bilingual TH/EN Keywords, and Admin Working Hours (12.00-24.00)
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -134,7 +134,10 @@ export default function AdminCondoApp() {
   const fetchData = async (overridePeriod?: string) => {
     setLoading(true);
     try {
-      const { data: configData } = await supabase.from('condo_config').select('*');
+      const { data: configData } = await supabase
+        .from('condo_config')
+        .select('*')
+        .not('key', 'like', 'LINE_REG_STATE_%');
       let activePeriod = overridePeriod || period;
       const configMap: Record<string, string> = {};
       if (configData) {
@@ -936,7 +939,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.0
+                  ระบบบริหารนิติบุคคล v2.1
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -2281,6 +2284,50 @@ export default function AdminCondoApp() {
             {/* ===================================================================== */}
             {activeTab === 'line' && (
               <div className="space-y-4">
+                {/* Interactive Registration & Bilingual Keyword Workflow Overview Card */}
+                <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-5 rounded-2xl shadow-sm space-y-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-3">
+                    <div>
+                      <h2 className="font-bold text-sky-400 text-sm sm:text-base">
+                        🤖 ขั้นตอนการทำงานระบบลงทะเบียน LINE OA อัตโนมัติ (ไทย / English)
+                      </h2>
+                      <p className="text-slate-300 text-[11px]">
+                        รองรับทั้งการกดจาก Rich Menu ทีละขั้นตอน และการพิมพ์รหัสลัด 7 หลัก
+                      </p>
+                    </div>
+                    <span className="px-3 py-1.5 bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 font-bold rounded-xl text-xs">
+                      🕒 เวลาทำการแอดมินตอบแชท / Admin Hours: 12.00 - 24.00 น.
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-xl space-y-1">
+                      <div className="font-bold text-sky-300">1. แอดไลน์ใหม่ (Follow Event)</div>
+                      <p className="text-slate-300 text-[11px]">
+                        เมื่อลูกบ้านแอดไลน์เข้ามาใหม่ ระบบส่งข้อความต้อนรับ 2 ภาษา (TH/EN) แนะนำให้กดปุ่ม <b>&quot;ลงทะเบียน&quot;</b> ที่ริชเมนู พร้อมแจ้งเวลาทำการแอดมิน <b>12.00 - 24.00 น.</b>
+                      </p>
+                    </div>
+                    <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-xl space-y-1">
+                      <div className="font-bold text-sky-300">2. พิมพ์ &quot;ลงทะเบียน&quot; / &quot;Register&quot;</div>
+                      <p className="text-slate-300 text-[11px]">
+                        เมื่อกดริชเมนูหรือพิมพ์คำว่า <b>ลงทะเบียน</b> หรือ <b>register</b> ระบบจะส่งข้อความให้ลูกบ้านกรอก <b>เลขห้อง</b> (เช่น <code className="text-amber-300">001</code> หรือ <code className="text-amber-300">64-65</code>)
+                      </p>
+                    </div>
+                    <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-xl space-y-1">
+                      <div className="font-bold text-sky-300">3. แสดงชื่อ &amp; เบอร์โทรปิด XXXX</div>
+                      <p className="text-slate-300 text-[11px]">
+                        เมื่อลูกบ้านพิมพ์เลขห้อง เช่น <code className="text-amber-300">001</code> ระบบจะเด้งแจ้ง <b>ชื่อ-นามสกุล</b> และ <b>เบอร์โทรศัพท์ที่ปิด 4 ตัวท้ายเป็น XXXX</b> (เช่น <code className="text-emerald-300">081-234-XXXX</code>)
+                      </p>
+                    </div>
+                    <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-xl space-y-1">
+                      <div className="font-bold text-sky-300">4. กรอกเลข 4 ตัวท้ายยืนยัน</div>
+                      <p className="text-slate-300 text-[11px]">
+                        เมื่อลูกบ้านพิมพ์เลข <b>4 ตัวท้ายของเบอร์โทร</b> (เช่น <code className="text-amber-300">6273</code>) หากตรงกับฐานข้อมูล ระบบจะผูกห้องชุดทันที!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
                     <div>
@@ -2670,7 +2717,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.0)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.1)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button

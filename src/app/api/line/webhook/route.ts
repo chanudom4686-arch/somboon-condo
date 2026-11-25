@@ -1,5 +1,6 @@
-// LINE OA Webhook Handler with Customizable Auto-Reply Rules, Meter Photo Image Attachment & Asia/Bangkok Timezone
-// Version 2.0 - 7-Digit LINE Registration Code (3-digit room + 4-digit phone suffix)
+// LINE OA Webhook Handler with 3-Step Interactive Registration, Bilingual (TH/EN) Commands,
+// Follow Event Welcome, Admin Working Hours (12.00 - 24.00), and Meter Photo Attachment
+// Version 2.1
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -36,6 +37,41 @@ async function replyLineMessage(replyToken: string, messages: any[], accessToken
   } catch (err) {
     console.error('Failed to send LINE reply:', err);
   }
+}
+
+// Mask the last 4 digits of a phone number with XXXX (e.g. "081-234-6273" -> "081-234-XXXX")
+function maskPhoneLast4(phone?: string | null): string {
+  const digits = (phone || '').replace(/[^0-9]/g, '');
+  if (digits.length < 4) return 'ไม่มีข้อมูลเบอร์โทร / No Phone';
+  const prefix = digits.slice(0, digits.length - 4);
+  if (prefix.length === 6) {
+    return `${prefix.slice(0, 3)}-${prefix.slice(3, 6)}-XXXX`;
+  }
+  if (prefix.length > 3) {
+    return `${prefix.slice(0, 3)}-${prefix.slice(3)}-XXXX`;
+  }
+  return `${prefix}XXXX`;
+}
+
+// Check if input text looks like a room number input (e.g. "001", "1", "645/001", "64-65", "064-065")
+function parseRoomNumberInput(rawText: string): string | null {
+  const trimmed = rawText.trim();
+  const withoutPrefix = trimmed.replace(/^ห้อง\s*/i, '').replace(/^room\s*/i, '').replace(/^645\//, '').trim();
+
+  // Check paired room patterns (e.g., 64-65, 064-065, 144-145, 164-165, 186-187)
+  if (/^(0?64-0?65|144-145|164-165|186-187)$/.test(withoutPrefix)) {
+    return resolveRoomNo(withoutPrefix);
+  }
+
+  // Check 1 to 3 digit room numbers (001 - 195)
+  if (/^\d{1,3}$/.test(withoutPrefix)) {
+    const num = parseInt(withoutPrefix, 10);
+    if (num >= 1 && num <= 195) {
+      return resolveRoomNo(withoutPrefix);
+    }
+  }
+
+  return null;
 }
 
 export async function POST(req: NextRequest) {
@@ -79,21 +115,52 @@ export async function POST(req: NextRequest) {
 
     const rules = rulesData || [];
 
+    const welcomeAndRegisterGuide = `สวัสดีครับ ยินดีต้อนรับสู่ LINE OA ${condoName} 🏢
+Welcome to ${condoName} Official LINE!
+
+📌 วิธีลงทะเบียนผูกห้องชุด / How to Register:
+กรุณากดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง (หรือพิมพ์คำว่า "ลงทะเบียน" / "Register") เพื่อผูกห้องชุดรับบิลค่าน้ำและค่าส่วนกลาง
+Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or type "ลงทะเบียน" / "Register") to link your room.
+
+🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours:
+12.00 - 24.00 น. (12:00 PM - 12:00 AM) ทุกวัน / Daily`;
+
     for (const event of events) {
+      const replyToken = event.replyToken;
+      const lineUserId = event.source?.userId;
+      if (!replyToken || !lineUserId) continue;
+
+      // 0. Handle New Friend Added ("follow" event)
+      if (event.type === 'follow') {
+        await replyLineMessage(
+          replyToken,
+          [{ type: 'text', text: welcomeAndRegisterGuide }],
+          accessToken
+        );
+        continue;
+      }
+
       if (event.type === 'message' && event.message?.type === 'text') {
         const text = (event.message.text || '').trim();
         const lowerText = text.toLowerCase();
-        const replyToken = event.replyToken;
-        const lineUserId = event.source?.userId;
+        const stateKey = `LINE_REG_STATE_${lineUserId}`;
+        const pendingState = config[stateKey] || '';
 
-        if (!replyToken || !lineUserId) continue;
-
-        // A. Handle Resident Self-Unlink
-        if (text === 'ยกเลิกผูกห้อง' || text === 'ยกเลิกลงทะเบียน' || lowerText === 'unlink') {
+        // A. Handle Resident Self-Unlink (Thai & English)
+        if (
+          text === 'ยกเลิกผูกห้อง' ||
+          text === 'ยกเลิกลงทะเบียน' ||
+          lowerText === 'unlink' ||
+          lowerText === 'unregister'
+        ) {
           const { data: linkedRooms } = await supabase
             .from('rooms')
             .select('room_no')
             .eq('line_user_id', lineUserId);
+
+          await supabase
+            .from('condo_config')
+            .upsert({ key: stateKey, value: '', updated_at: new Date().toISOString() }, { onConflict: 'key' });
 
           if (linkedRooms && linkedRooms.length > 0) {
             await supabase
@@ -101,12 +168,13 @@ export async function POST(req: NextRequest) {
               .update({ line_user_id: '', updated_at: new Date().toISOString() })
               .eq('line_user_id', lineUserId);
 
+            const roomListStr = linkedRooms.map((r) => formatRoomNo(r.room_no)).join(', ');
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `🔓 ยกเลิกการผูกบัญชี LINE กับห้อง ${linkedRooms.map((r) => formatRoomNo(r.room_no)).join(', ')} เรียบร้อยแล้วครับ`,
+                  text: `🔓 ยกเลิกการผูกบัญชี LINE กับห้อง ${roomListStr} เรียบร้อยแล้วครับ\nUnlinked LINE account from Room ${roomListStr} successfully.\n\nหากต้องการลงทะเบียนใหม่ กดริชเมนูหรือพิมพ์ "ลงทะเบียน" / "Register" ได้เลยครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -114,15 +182,221 @@ export async function POST(req: NextRequest) {
           } else {
             await replyLineMessage(
               replyToken,
-              [{ type: 'text', text: 'บัญชี LINE ของคุณยังไม่ได้ผูกกับห้องชุดใดในระบบครับ' }],
+              [
+                {
+                  type: 'text',
+                  text: `บัญชี LINE ของคุณยังไม่ได้ผูกกับห้องชุดใดในระบบครับ (Your LINE account is not linked to any room yet.)\n\nพิมพ์ "ลงทะเบียน" หรือ "Register" เพื่อเริ่มต้นผูกห้องชุดได้เลยครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                },
+              ],
               accessToken
             );
           }
           continue;
         }
 
-        // B. Handle 7-Digit Room Registration Code (3-digit room + 4-digit phone suffix, e.g. "0056273" or paired "0646273")
+        // B. Interactive Registration STEP 1: Resident taps Rich Menu or types "ลงทะเบียน" / "register"
+        if (
+          text === 'ลงทะเบียน' ||
+          text === 'ผูกห้อง' ||
+          text === 'ลงทะเบียนผูกห้อง' ||
+          lowerText === 'register' ||
+          lowerText === 'link'
+        ) {
+          await supabase
+            .from('condo_config')
+            .upsert(
+              { key: stateKey, value: 'AWAITING_ROOM', updated_at: new Date().toISOString() },
+              { onConflict: 'key' }
+            );
+
+          await replyLineMessage(
+            replyToken,
+            [
+              {
+                type: 'text',
+                text: `📝 เริ่มต้นการลงทะเบียนผูกห้องชุด (ขั้นตอนที่ 1/2)\nRoom Registration (Step 1/2)\n\n👉 กรุณาพิมพ์ "เลขห้อง" ของท่านส่งมาในแชทนี้ครับ (เช่น 001, 087 หรือห้องคู่ 64-65)\nPlease enter your "Room Number" (e.g. 001, 087, or 64-65):\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+              },
+            ],
+            accessToken
+          );
+          continue;
+        }
+
+        // C. Interactive Registration STEP 2: Resident enters Room Number (e.g. "001", "87", "645/001", "64-65")
+        const parsedRoomNo = parseRoomNumberInput(text);
+        if (parsedRoomNo) {
+          const { data: roomData, error: roomErr } = await supabase
+            .from('rooms')
+            .select('*')
+            .eq('room_no', parsedRoomNo)
+            .neq('status', 'รวมห้องคู่')
+            .maybeSingle();
+
+          if (!roomData || roomErr) {
+            await replyLineMessage(
+              replyToken,
+              [
+                {
+                  type: 'text',
+                  text: `⚠️ ไม่พบข้อมูลห้อง ${formatRoomNo(parsedRoomNo)} ในระบบ\nRoom ${formatRoomNo(parsedRoomNo)} was not found.\n\nกรุณาพิมพ์เลขห้อง 3 หลักอีกครั้ง (เช่น 001 ถึง 195)\nPlease enter a valid 3-digit room number (001 - 195).\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                },
+              ],
+              accessToken
+            );
+            continue;
+          }
+
+          const cleanOwnerPhone = (roomData.owner_phone || '').replace(/[^0-9]/g, '');
+          const cleanTenantPhone = (roomData.tenant_phone || '').replace(/[^0-9]/g, '');
+          const hasOwnerPhone = cleanOwnerPhone.length >= 4;
+          const hasTenantPhone = cleanTenantPhone.length >= 4;
+
+          if (!hasOwnerPhone && !hasTenantPhone) {
+            await supabase
+              .from('condo_config')
+              .upsert({ key: stateKey, value: '', updated_at: new Date().toISOString() }, { onConflict: 'key' });
+
+            await replyLineMessage(
+              replyToken,
+              [
+                {
+                  type: 'text',
+                  text: `🏢 ข้อมูลห้องชุด / Room: ${formatRoomNo(parsedRoomNo)}\n👤 ชื่อ-นามสกุล / Name: ${roomData.owner_name || roomData.tenant_name || '-'}\n\n⚠️ ห้องนี้ยังไม่มีเบอร์โทรศัพท์บันทึกในระบบ กรุณาพิมพ์ชื่อและเบอร์โทรศัพท์ของท่านทิ้งไว้ในแชทนี้ เพื่อให้แอดมินบันทึกข้อมูลให้ครับ\nNo phone number is registered for this room yet. Please leave your name and phone number in this chat for our admin.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                },
+              ],
+              accessToken
+            );
+            continue;
+          }
+
+          // Save selected room_no to pending state so Step 3 (4 digits) knows which room to verify
+          await supabase
+            .from('condo_config')
+            .upsert(
+              { key: stateKey, value: parsedRoomNo, updated_at: new Date().toISOString() },
+              { onConflict: 'key' }
+            );
+
+          const infoLines: string[] = [];
+          if (roomData.owner_name || hasOwnerPhone) {
+            infoLines.push(`👤 ชื่อ-นามสกุล / Name: คุณ ${roomData.owner_name || 'เจ้าของห้อง (Owner)'}`);
+            if (hasOwnerPhone) {
+              infoLines.push(`📞 เบอร์โทรศัพท์ / Phone: ${maskPhoneLast4(roomData.owner_phone)}`);
+            }
+          }
+          if (roomData.tenant_name || hasTenantPhone) {
+            infoLines.push(`👤 ผู้เช่า / Tenant: คุณ ${roomData.tenant_name || 'ผู้เช่า (Tenant)'}`);
+            if (hasTenantPhone) {
+              infoLines.push(`📞 เบอร์โทรผู้เช่า / Tenant Phone: ${maskPhoneLast4(roomData.tenant_phone)}`);
+            }
+          }
+
+          await replyLineMessage(
+            replyToken,
+            [
+              {
+                type: 'text',
+                text: `🏢 พบข้อมูลห้องชุด / Room Found: ${formatRoomNo(parsedRoomNo)} (ขั้นตอนที่ 2/2)\n${infoLines.join('\n')}\n\n🔑 กรุณาพิมพ์ "ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์" (แทนที่ XXXX) ส่งมาในแชทนี้เพื่อยืนยันการลงทะเบียนครับ\nPlease reply with the "last 4 digits of your phone number" (replacing XXXX) to complete registration.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+              },
+            ],
+            accessToken
+          );
+          continue;
+        }
+
         const cleanDigits = text.replace(/[^0-9]/g, '');
+
+        // D. Interactive Registration STEP 3: Resident enters 4-digit Phone Suffix (e.g. "6273")
+        if (cleanDigits.length === 4 && /^\d{4}$/.test(text)) {
+          if (!pendingState || pendingState === 'AWAITING_ROOM') {
+            await replyLineMessage(
+              replyToken,
+              [
+                {
+                  type: 'text',
+                  text: `⚠️ กรุณาพิมพ์ "เลขห้อง 3 หลัก" ของท่านก่อนครับ (เช่น 001) แล้วจึงกรอกเบอร์โทรศัพท์ 4 ตัวท้าย\nPlease enter your "3-digit Room Number" first (e.g. 001) before entering the last 4 digits of your phone number.\n\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                },
+              ],
+              accessToken
+            );
+            continue;
+          }
+
+          const { data: roomData } = await supabase
+            .from('rooms')
+            .select('*')
+            .eq('room_no', pendingState)
+            .maybeSingle();
+
+          if (!roomData) {
+            await supabase
+              .from('condo_config')
+              .upsert(
+                { key: stateKey, value: 'AWAITING_ROOM', updated_at: new Date().toISOString() },
+                { onConflict: 'key' }
+              );
+            await replyLineMessage(
+              replyToken,
+              [
+                {
+                  type: 'text',
+                  text: `⚠️ กรุณาพิมพ์เลขห้อง 3 หลักของท่านใหม่อีกครั้งครับ (เช่น 001)\nPlease enter your 3-digit room number again (e.g. 001).`,
+                },
+              ],
+              accessToken
+            );
+            continue;
+          }
+
+          const cleanOwnerPhone = (roomData.owner_phone || '').replace(/[^0-9]/g, '');
+          const cleanTenantPhone = (roomData.tenant_phone || '').replace(/[^0-9]/g, '');
+          const ownerMatch = cleanOwnerPhone.length >= 4 && cleanOwnerPhone.endsWith(cleanDigits);
+          const tenantMatch = cleanTenantPhone.length >= 4 && cleanTenantPhone.endsWith(cleanDigits);
+
+          if (ownerMatch || tenantMatch) {
+            await supabase
+              .from('rooms')
+              .update({
+                line_user_id: lineUserId,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('room_no', pendingState);
+
+            await supabase
+              .from('condo_config')
+              .upsert({ key: stateKey, value: '', updated_at: new Date().toISOString() }, { onConflict: 'key' });
+
+            const personName = ownerMatch
+              ? roomData.owner_name || 'เจ้าของห้อง (Owner)'
+              : roomData.tenant_name || 'ผู้เช่า (Tenant)';
+
+            await replyLineMessage(
+              replyToken,
+              [
+                {
+                  type: 'text',
+                  text: `🎉 ลงทะเบียนผูกห้อง ${formatRoomNo(pendingState)} สำเร็จแล้วครับ!\nRegistration Complete for Room ${formatRoomNo(pendingState)}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName}\n\n📌 คำสั่งตรวจสอบข้อมูลอัตโนมัติ (Thai / English Commands):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้และรูปมิเตอร์ / Current bill & meter photo\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Payment receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "รูปมิเตอร์" หรือ "meter" — ดูรูปถ่ายหน้าปัดมิเตอร์ / Meter photo\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ยอดเงินระดมทุนซ่อมตึก / Maintenance fund\n• พิมพ์ "การเงิน" หรือ "finance" — สรุปรายรับ-รายจ่ายตึก / Building finance\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ช่องทางโอนเงิน / Bank account\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                },
+              ],
+              accessToken
+            );
+          } else {
+            const masked = maskPhoneLast4(roomData.owner_phone || roomData.tenant_phone);
+            await replyLineMessage(
+              replyToken,
+              [
+                {
+                  type: 'text',
+                  text: `❌ ตัวเลข 4 ตัวท้าย (${cleanDigits}) ไม่ตรงกับเบอร์โทรศัพท์ที่ลงทะเบียนไว้ของห้อง ${formatRoomNo(pendingState)} (${masked})\nThe last 4 digits (${cleanDigits}) do not match our records for Room ${formatRoomNo(pendingState)} (${masked}).\n\n• กรุณาพิมพ์ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์อีกครั้ง\n  Please enter the last 4 digits again.\n• หรือพิมพ์เลขห้องใหม่ (เช่น 001) หากต้องการเปลี่ยนห้อง\n  Or type a different room number (e.g. 001).\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                },
+              ],
+              accessToken
+            );
+          }
+          continue;
+        }
+
+        // E. Direct 7-Digit Shortcut Registration Code (e.g. "0056273" or paired "0646273")
         if (cleanDigits.length === 7 && text.length <= 12) {
           const rawPrefix = cleanDigits.substring(0, 3);
           const roomPrefix = resolveRoomNo(rawPrefix);
@@ -132,7 +406,7 @@ export async function POST(req: NextRequest) {
             .from('rooms')
             .select('*')
             .eq('room_no', roomPrefix)
-            .single();
+            .maybeSingle();
 
           if (!roomData || roomErr) {
             await replyLineMessage(
@@ -140,7 +414,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `⚠️ ไม่พบข้อมูลห้องเลขที่ ${formatRoomNo(roomPrefix)}\nโปรดตรวจสอบเลขห้อง 3 หลักให้ถูกต้องครับ (เช่น ห้อง 005 เบอร์ลงท้าย 6273 ให้พิมพ์ 0056273)`,
+                  text: `⚠️ ไม่พบข้อมูลห้องเลขที่ ${formatRoomNo(roomPrefix)}\nโปรดพิมพ์คำว่า "ลงทะเบียน" หรือ "Register" เพื่อเริ่มต้นลงทะเบียนทีละขั้นตอนครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -162,6 +436,10 @@ export async function POST(req: NextRequest) {
               })
               .eq('room_no', roomPrefix);
 
+            await supabase
+              .from('condo_config')
+              .upsert({ key: stateKey, value: '', updated_at: new Date().toISOString() }, { onConflict: 'key' });
+
             const personName = ownerMatch ? roomData.owner_name : roomData.tenant_name;
 
             await replyLineMessage(
@@ -169,7 +447,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `🎉 ลงทะเบียนผูกห้อง ${formatRoomNo(roomPrefix)} สำเร็จแล้วครับ!\nผู้รับข้อมูล: คุณ ${personName || 'เจ้าของร่วม/ผู้พักอาศัย'}\n\n📌 พิมพ์คำสั่งเพื่อตรวจสอบข้อมูลได้ทันที:\n• พิมพ์ "ดูบิล" — ดูใบแจ้งหนี้และรูปถ่ายมิเตอร์รอบปัจจุบัน\n• พิมพ์ "ใบเสร็จ" — ดูใบเสร็จรับเงิน\n• พิมพ์ "สเตทเมนท์" — ดูประวัติชำระย้อนหลัง 12 เดือน\n• พิมพ์ "เงินระดมทุน" — ดูยอดเงินระดมทุนซ่อมตึก\n• พิมพ์ "การเงิน" — ดูสรุปรายรับ-รายจ่ายของตึก\n• พิมพ์ "เมนู" — ดูคำสั่งทั้งหมด`,
+                  text: `🎉 ลงทะเบียนผูกห้อง ${formatRoomNo(roomPrefix)} สำเร็จแล้วครับ!\nRegistration Complete for Room ${formatRoomNo(roomPrefix)}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName || 'เจ้าของร่วม/ผู้พักอาศัย'}\n\n📌 พิมพ์คำสั่งเพื่อตรวจสอบข้อมูลได้ทันที (Thai / English):\n• "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้และรูปมิเตอร์\n• "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน\n• "สเตทเมนท์" หรือ "statement" — ดูประวัติชำระย้อนหลัง 12 เดือน\n• "เงินระดมทุน" หรือ "fund" — ดูยอดเงินระดมทุนซ่อมตึก\n• "การเงิน" หรือ "finance" — ดูสรุปรายรับ-รายจ่ายของตึก\n• "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -180,7 +458,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `⚠️ เบอร์โทรศัพท์ 4 ตัวท้าย (${phoneSuffix}) ไม่ตรงกับเบอร์ที่ลงทะเบียนไว้กับห้อง ${formatRoomNo(roomPrefix)}\n\nโปรดตรวจสอบเบอร์โทรศัพท์ที่แจ้งไว้กับนิติบุคคลครับ`,
+                  text: `⚠️ เบอร์โทรศัพท์ 4 ตัวท้าย (${phoneSuffix}) ไม่ตรงกับเบอร์ที่ลงทะเบียนไว้กับห้อง ${formatRoomNo(roomPrefix)} (${maskPhoneLast4(roomData.owner_phone || roomData.tenant_phone)})\n\nกรุณาพิมพ์เลขห้อง 3 หลัก (เช่น ${rawPrefix}) หรือพิมพ์ "ลงทะเบียน" / "Register" เพื่อตรวจสอบข้อมูลห้องครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -189,7 +467,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // C. Match against Customizable Auto-Reply Rules
+        // F. Match against Customizable Auto-Reply Rules (Supports Both Thai & English Keywords)
         const matchedRule = rules.find((rule: any) => {
           const keywords = (rule.keyword || '')
             .split(',')
@@ -208,7 +486,7 @@ export async function POST(req: NextRequest) {
           .limit(1);
         const linkedRoom = linkedRooms && linkedRooms.length > 0 ? linkedRooms[0] : null;
 
-        const bankInfoText = `ธนาคาร: ${config.BANK_NAME || 'กสิกรไทย'}\nเลขที่บัญชี: ${config.BANK_ACCOUNT_NO || '-'}\nชื่อบัญชี: ${config.BANK_ACCOUNT_NAME || condoName}\nพร้อมเพย์: ${config.PROMPTPAY_NO || '-'}`;
+        const bankInfoText = `ธนาคาร (Bank): ${config.BANK_NAME || 'กสิกรไทย'}\nเลขที่บัญชี (Account No.): ${config.BANK_ACCOUNT_NO || '-'}\nชื่อบัญชี (Account Name): ${config.BANK_ACCOUNT_NAME || condoName}\nเลขผู้เสียภาษีนิติ: ${config.PROMPTPAY_NO || '-'}`;
 
         if (matchedRule) {
           const mode = matchedRule.reply_mode || 'custom_text';
@@ -224,7 +502,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\n\n📌 วิธีลงทะเบียน:\nพิมพ์เลขห้อง 3 หลัก ตามด้วยเบอร์โทรศัพท์ 4 ตัวท้าย\n(เช่น ห้อง 005 เบอร์ลงท้าย 6273 พิมพ์: 0056273)`,
+                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\nPlease register your room before viewing bills, meter photos, or statements.\n\n📌 วิธีลงทะเบียน / How to Register:\nกดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์คำว่า "ลงทะเบียน" / "Register" (หรือพิมพ์เลขห้อง 3 หลัก เช่น 001)\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -232,7 +510,7 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          let roomNoFormatted = linkedRoom ? formatRoomNo(linkedRoom.room_no) : 'ยังไม่ผูกห้อง';
+          let roomNoFormatted = linkedRoom ? formatRoomNo(linkedRoom.room_no) : 'ยังไม่ผูกห้อง (Not Linked)';
           let ownerName = linkedRoom ? (linkedRoom.owner_name || linkedRoom.tenant_name || 'เจ้าของห้อง') : '-';
           let prevMeter = linkedRoom ? Number(linkedRoom.latest_meter) || 0 : 0;
           let currMeter = prevMeter;
@@ -243,7 +521,7 @@ export async function POST(req: NextRequest) {
           let commonFee = '0.00';
           let extraItems = '';
           let totalDue = '0.00';
-          let paymentStatus = '⏳ รอชำระ';
+          let paymentStatus = '⏳ รอชำระ / Pending';
           let meterPhotoUrl: string | null = null;
 
           if (linkedRoom) {
@@ -288,25 +566,25 @@ export async function POST(req: NextRequest) {
               );
             }
             if (bill.late_fee > 0) {
-              extraLines.push(`• เบี้ยปรับล่าช้า: +${bill.late_fee.toLocaleString()} บาท`);
+              extraLines.push(`• เบี้ยปรับล่าช้า (Late Fee): +${bill.late_fee.toLocaleString()} บาท`);
             }
             if (bill.contribution_deducted > 0) {
-              extraLines.push(`• หักเครดิตสมทบทุนซ่อมตึก: -${bill.contribution_deducted.toLocaleString()} บาท`);
+              extraLines.push(`• หักเครดิตสมทบทุนซ่อมตึก (Fund Credit): -${bill.contribution_deducted.toLocaleString()} บาท`);
             }
             if (bill.prepaid_deducted > 0) {
-              extraLines.push(`• หักเงินฝากล่วงหน้า: -${bill.prepaid_deducted.toLocaleString()} บาท`);
+              extraLines.push(`• หักเงินฝากล่วงหน้า (Prepaid): -${bill.prepaid_deducted.toLocaleString()} บาท`);
             }
             if (bill.outstanding_balance > 0) {
-              extraLines.push(`• ยอดค้างชำระยกมา: +${bill.outstanding_balance.toLocaleString()} บาท`);
+              extraLines.push(`• ยอดค้างชำระยกมา (Arrears): +${bill.outstanding_balance.toLocaleString()} บาท`);
             }
             extraItems = extraLines.length > 0 ? extraLines.join('\n') + '\n' : '';
             totalDue = bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
             paymentStatus = logData?.is_paid
-              ? `✅ ชำระแล้ว (${logData.paid_timestamp ? new Date(logData.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'เรียบร้อย'})`
-              : `⏳ รอชำระ (ครบกำหนดวันที่ ${dueDay})`;
+              ? `✅ ชำระแล้ว / Paid (${logData.paid_timestamp ? new Date(logData.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'เรียบร้อย'})`
+              : `⏳ รอชำระ / Unpaid (ครบกำหนดวันที่ / Due: ${dueDay})`;
           }
 
-          let statement12mText = 'ยังไม่มีประวัติการชำระเงิน';
+          let statement12mText = 'ยังไม่มีประวัติการชำระเงิน / No payment history yet';
           if (linkedRoom && (mode === 'system_statement' || matchedRule.reply_text.includes('{statement_12m}'))) {
             const { data: historyLogs } = await supabase
               .from('meter_logs')
@@ -322,7 +600,7 @@ export async function POST(req: NextRequest) {
                     ? new Date(h.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
                     : '-';
                   return `• รอบ ${h.period}: ${Number(h.total_amount).toLocaleString()} บ. — ${
-                    h.is_paid ? `✅ ชำระแล้ว (${paidDate})` : '⏳ ค้างชำระ'
+                    h.is_paid ? `✅ ชำระแล้ว/Paid (${paidDate})` : '⏳ ค้างชำระ/Unpaid'
                   }`;
                 })
                 .join('\n');
@@ -349,7 +627,7 @@ export async function POST(req: NextRequest) {
               .map((t: any) => `  - ${t.tx_date}: ${t.category} (${Number(t.amount).toLocaleString()} บ.)`)
               .join('\n');
 
-            fundSummaryText = `• ยอดเงินระดมทุนสะสมทั้งหมด: ${totalFundIn.toLocaleString()} บาท\n• นำไปใช้ปรับปรุง/ซ่อมบำรุงแล้ว: ${totalFundOut.toLocaleString()} บาท\n• ยอดคงเหลือปัจจุบัน: ${(totalFundIn - totalFundOut).toLocaleString()} บาท\n\nรายการนำไปใช้ล่าสุด:\n${expenseItems || '  - ยังไม่มีรายการเบิกจ่าย'}`;
+            fundSummaryText = `• ยอดเงินระดมทุนสะสมทั้งหมด (Total Fund): ${totalFundIn.toLocaleString()} บาท\n• นำไปใช้ปรับปรุง/ซ่อมบำรุงแล้ว (Used): ${totalFundOut.toLocaleString()} บาท\n• ยอดคงเหลือปัจจุบัน (Remaining): ${(totalFundIn - totalFundOut).toLocaleString()} บาท\n\nรายการนำไปใช้ล่าสุด (Recent Expenses):\n${expenseItems || '  - ยังไม่มีรายการเบิกจ่าย / None'}`;
           }
 
           let buildingFinanceText = '';
@@ -368,7 +646,7 @@ export async function POST(req: NextRequest) {
               .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
             const netBal = totalIn - totalOut;
 
-            buildingFinanceText = `• รายรับรวมของอาคาร: +${totalIn.toLocaleString()} บาท\n• รายจ่ายรวมของอาคาร: -${totalOut.toLocaleString()} บาท\n• สถานะดุลการเงินปัจจุบัน: ${netBal >= 0 ? `✅ คงเหลือสุทธิ +${netBal.toLocaleString()} บาท` : `⚠️ ติดลบ ${netBal.toLocaleString()} บาท`}`;
+            buildingFinanceText = `• รายรับรวมของอาคาร (Total Income): +${totalIn.toLocaleString()} บาท\n• รายจ่ายรวมของอาคาร (Total Expense): -${totalOut.toLocaleString()} บาท\n• สถานะดุลการเงินปัจจุบัน (Net Balance): ${netBal >= 0 ? `✅ คงเหลือสุทธิ +${netBal.toLocaleString()} บาท` : `⚠️ ติดลบ ${netBal.toLocaleString()} บาท`}`;
           }
 
           const finalReply = (matchedRule.reply_text || '')
@@ -408,10 +686,11 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const defaultGreeting = (
-          config.LINE_GREETING_MESSAGE ||
-          `สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name}\n\n📌 หากยังไม่ได้ผูกห้องชุด:\nโปรดพิมพ์ เลขห้อง 3 หลัก ตามด้วยเบอร์โทร 4 ตัวท้าย (เช่น 0056273)\n\n📌 หากผูกห้องแล้ว พิมพ์คำว่า "เมนู" หรือ "ดูบิล" ได้เลยครับ`
-        ).replace(/\{condo_name\}/g, condoName);
+        // Default Greeting when message does not match any keyword
+        const defaultGreeting = (config.LINE_GREETING_MESSAGE || welcomeAndRegisterGuide).replace(
+          /\{condo_name\}/g,
+          condoName
+        );
 
         await replyLineMessage(
           replyToken,
