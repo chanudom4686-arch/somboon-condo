@@ -1,5 +1,5 @@
 // Billing calculation and formatting utilities
-// Version 1.0
+// Version 1.3 - Supports explicit previous meter from meter_logs to prevent 0-unit overwrite bug
 
 import { Room, CondoConfig, BillCalculationResult } from '../types/condo';
 
@@ -29,9 +29,13 @@ export function calculateBill(
   config: Partial<CondoConfig>,
   specialItems = 0,
   specialItemsNote = '',
-  outstandingBalance = 0
+  outstandingBalance = 0,
+  explicitPrevMeter?: number
 ): BillCalculationResult {
-  const prevMeter = Number(room.latest_meter) || 0;
+  const prevMeter =
+    explicitPrevMeter !== undefined && !Number.isNaN(Number(explicitPrevMeter))
+      ? Number(explicitPrevMeter)
+      : Number(room.latest_meter) || 0;
   const unitsUsed = Math.max(0, currMeter - prevMeter);
 
   const waterRate = Number(config.WATER_RATE_PER_UNIT) || 35;

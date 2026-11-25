@@ -1,13 +1,14 @@
 'use client';
 
 // Printable 4-Bills-Per-A4 Component
-// Version 1.0 - Bilingual (TH/EN) with Dynamic PromptPay QR & Dotted Cut-lines
+// Version 1.3 - Bilingual (TH/EN) with Dynamic PromptPay QR, Room Status Filter & Floor Filter
 
-import React from 'react';
-import { BillCalculationResult, CondoConfig } from '@/types/condo';
+import React, { useState, useMemo } from 'react';
+import { BillCalculationResult, CondoConfig, Room } from '@/types/condo';
 
 interface PrintBillsProps {
   bills: BillCalculationResult[];
+  rooms?: Room[];
   config: Partial<CondoConfig>;
   qrMap: Record<string, string>; // room_no -> qrDataUrl
   onClose?: () => void;
@@ -15,36 +16,99 @@ interface PrintBillsProps {
 
 export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
   bills,
+  rooms = [],
   config,
   qrMap,
   onClose,
 }) => {
+  const [excludeProblemRooms, setExcludeProblemRooms] = useState<boolean>(true);
+  const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
+  const [roomSearch, setRoomSearch] = useState<string>('');
+
+  const roomMap = useMemo(() => {
+    const map: Record<string, Room> = {};
+    rooms.forEach((r) => {
+      map[r.room_no] = r;
+    });
+    return map;
+  }, [rooms]);
+
+  const filteredBills = useMemo(() => {
+    return bills.filter((b) => {
+      const r = roomMap[b.room_no];
+      if (excludeProblemRooms && r && r.status && r.status !== 'ปกติ') {
+        return false;
+      }
+      if (selectedFloor !== 'all' && r && r.floor !== selectedFloor) {
+        return false;
+      }
+      if (roomSearch.trim() !== '') {
+        const q = roomSearch.trim();
+        if (!b.room_no.includes(q) && !b.formatted_room.includes(q)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [bills, roomMap, excludeProblemRooms, selectedFloor, roomSearch]);
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto">
       {/* Top Bar for Screen Preview */}
-      <div className="sticky top-0 z-50 bg-white border-b px-4 py-3 flex items-center justify-between shadow-sm print:hidden">
+      <div className="sticky top-0 z-50 bg-white border-b px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm print:hidden">
         <div>
-          <h2 className="font-bold text-slate-800 text-lg">
-            ตัวอย่างพิมพ์บิล 4 บิลต่อ 1 A4 (พิมพ์ทั้งหมด {bills.length} ห้อง / {Math.ceil(bills.length / 4)} แผ่น)
+          <h2 className="font-bold text-slate-800 text-base sm:text-lg">
+            ตัวอย่างพิมพ์บิล 4 บิลต่อ 1 A4 (แสดง {filteredBills.length} ห้อง / {Math.ceil(filteredBills.length / 4)} แผ่น A4)
           </h2>
           <p className="text-xs text-slate-500">
             ระบบจัดหน้า 4 บิลต่อหน้า A4 อัตโนมัติ พร้อมเส้นประสำหรับตัดแจก และ QR PromptPay
           </p>
         </div>
-        <div className="flex items-center gap-3">
+
+        {/* Print Filter Controls */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-lg cursor-pointer font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={excludeProblemRooms}
+              onChange={(e) => setExcludeProblemRooms(e.target.checked)}
+              className="rounded text-blue-600"
+            />
+            <span>ข้ามห้องมีปัญหา (ประหยัดกระดาษ)</span>
+          </label>
+
+          <select
+            value={selectedFloor}
+            onChange={(e) => setSelectedFloor(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="border rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700"
+          >
+            <option value="all">ทุกชั้น (1-8)</option>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((fl) => (
+              <option key={fl} value={fl}>
+                เฉพาะชั้น {fl}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="text"
+            value={roomSearch}
+            onChange={(e) => setRoomSearch(e.target.value)}
+            placeholder="ค้นหาเลขห้อง..."
+            className="border rounded-lg px-2.5 py-1.5 w-28 bg-white"
+          />
+
           <button
             onClick={() => window.print()}
-            className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow flex items-center gap-2 text-sm"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow flex items-center gap-1.5 text-xs sm:text-sm"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-            </svg>
-            สั่งพิมพ์ / บันทึก PDF
+            <span>🖨️ สั่งพิมพ์ / บันทึก PDF</span>
           </button>
+
           {onClose && (
             <button
               onClick={onClose}
-              className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-sm"
+              className="px-3 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs sm:text-sm font-medium"
             >
               ปิดหน้าต่าง
             </button>
@@ -95,12 +159,12 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
         `}} />
 
         {/* Chunk bills into groups of 4 for each A4 sheet */}
-        {Array.from({ length: Math.ceil(bills.length / 4) }).map((_, pageIdx) => {
-          const pageBills = bills.slice(pageIdx * 4, pageIdx * 4 + 4);
+        {Array.from({ length: Math.ceil(filteredBills.length / 4) }).map((_, pageIdx) => {
+          const pageBills = filteredBills.slice(pageIdx * 4, pageIdx * 4 + 4);
 
           return (
             <div key={pageIdx} className="a4-page">
-              {pageBills.map((bill, index) => {
+              {pageBills.map((bill) => {
                 const qrUrl = qrMap[bill.room_no] || '';
                 const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)';
                 const bankName = config.BANK_NAME || 'กสิกรไทย';

@@ -1,11 +1,11 @@
 'use client';
 
 // Staff Meter Reading App (Dedicated Route: /meter)
-// Version 1.2 - Pure Meter Reading Mode: Zero Admin/Financial Links to prevent mistakes
+// Version 1.3 - Pure Meter Reading Mode with Photo Thumbnails & Accurate Log Editing
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
-import { Room, MeterLog } from '@/types/condo';
+import { Room, MeterLog, CondoConfig } from '@/types/condo';
 import { formatRoomNo } from '@/utils/billing';
 import { MeterReadingModal } from '@/components/MeterReadingModal';
 
@@ -14,6 +14,7 @@ export default function StaffMeterReadingPage() {
 
   const [rooms, setRooms] = useState<Room[]>([]);
   const [meterLogs, setMeterLogs] = useState<MeterLog[]>([]);
+  const [config, setConfig] = useState<Partial<CondoConfig>>({});
   const [period, setPeriod] = useState<string>('2026-11');
   const [condoName, setCondoName] = useState<string>('สมบูรณ์คอนโดทาวน์ (645)');
   const [loading, setLoading] = useState(true);
@@ -30,15 +31,18 @@ export default function StaffMeterReadingPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Get current billing period and condo name
+      // 1. Get current billing period and condo config
       const { data: configData } = await supabase.from('condo_config').select('key, value');
       let currentPeriod = '2026-11';
+      const configMap: Record<string, string> = {};
       if (configData) {
         configData.forEach((c) => {
+          configMap[c.key] = c.value;
           if (c.key === 'CURRENT_BILLING_PERIOD') currentPeriod = c.value;
           if (c.key === 'CONDO_NAME') setCondoName(c.value);
         });
       }
+      setConfig(configMap);
       setPeriod(currentPeriod);
 
       // 2. Fetch all 195 rooms
@@ -65,7 +69,7 @@ export default function StaffMeterReadingPage() {
     fetchData();
   }, []);
 
-  // Map of logs
+  // Map of logs by room_no
   const logMap = useMemo(() => {
     const map: Record<string, MeterLog> = {};
     meterLogs.forEach((l) => {
@@ -120,7 +124,7 @@ export default function StaffMeterReadingPage() {
             <span className="text-2xl">📱</span>
             <div>
               <h1 className="font-bold text-base leading-tight text-white">{condoName}</h1>
-              <p className="text-xs text-sky-400 font-medium">แอปจดมิเตอร์น้ำ (พนักงาน)</p>
+              <p className="text-xs text-sky-400 font-medium">แอปจดมิเตอร์น้ำ (พนักงาน) • v1.3</p>
             </div>
           </div>
           <div className="text-right">
@@ -181,8 +185,8 @@ export default function StaffMeterReadingPage() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="พิมพ์เลขห้องเพื่อค้นหา เช่น 087 หรือ 645/087..."
-                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  placeholder="พิมพ์เลขห้องเพื่อค้นหา เช่น 005 หรือ 087..."
+                  className="w-full pl-9 pr-8 py-2.5 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
                 />
                 {searchQuery && (
                   <button
@@ -199,7 +203,7 @@ export default function StaffMeterReadingPage() {
                 <button
                   type="button"
                   onClick={() => setFilterStatus('all')}
-                  className={`py-1.5 text-center rounded-lg font-bold transition ${
+                  className={`py-2 text-center rounded-xl font-bold transition ${
                     filterStatus === 'all'
                       ? 'bg-slate-800 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600'
@@ -210,7 +214,7 @@ export default function StaffMeterReadingPage() {
                 <button
                   type="button"
                   onClick={() => setFilterStatus('unread')}
-                  className={`py-1.5 text-center rounded-lg font-bold transition ${
+                  className={`py-2 text-center rounded-xl font-bold transition ${
                     filterStatus === 'unread'
                       ? 'bg-amber-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600'
@@ -221,7 +225,7 @@ export default function StaffMeterReadingPage() {
                 <button
                   type="button"
                   onClick={() => setFilterStatus('read')}
-                  className={`py-1.5 text-center rounded-lg font-bold transition ${
+                  className={`py-2 text-center rounded-xl font-bold transition ${
                     filterStatus === 'read'
                       ? 'bg-emerald-600 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600'
@@ -232,11 +236,11 @@ export default function StaffMeterReadingPage() {
               </div>
 
               {/* Floor Buttons Horizontal Scroll */}
-              <div className="flex gap-1 overflow-x-auto pt-1 pb-0.5">
+              <div className="flex gap-1.5 overflow-x-auto pt-1 pb-0.5">
                 <button
                   type="button"
                   onClick={() => setFilterFloor('all')}
-                  className={`px-3 py-1 rounded-lg whitespace-nowrap font-medium text-[11px] ${
+                  className={`px-3.5 py-1.5 rounded-xl whitespace-nowrap font-bold text-xs ${
                     filterFloor === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
                   }`}
                 >
@@ -247,7 +251,7 @@ export default function StaffMeterReadingPage() {
                     key={fl}
                     type="button"
                     onClick={() => setFilterFloor(fl)}
-                    className={`px-3 py-1 rounded-lg whitespace-nowrap font-medium text-[11px] ${
+                    className={`px-3.5 py-1.5 rounded-xl whitespace-nowrap font-bold text-xs ${
                       filterFloor === fl ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
                     }`}
                   >
@@ -267,7 +271,7 @@ export default function StaffMeterReadingPage() {
                 filteredRooms.map((room) => {
                   const log = logMap[room.room_no];
                   const isRead = !!log;
-                  const prevM = Number(room.latest_meter) || 0;
+                  const prevM = log ? Number(log.prev_meter) : Number(room.latest_meter) || 0;
                   const currM = log ? Number(log.curr_meter) : prevM;
                   const units = log ? Number(log.units_used) : 0;
 
@@ -276,13 +280,13 @@ export default function StaffMeterReadingPage() {
                       key={room.room_no}
                       onClick={() => setReadingRoom(room)}
                       className={`p-3 rounded-2xl border transition active:scale-[0.99] cursor-pointer flex items-center justify-between gap-3 shadow-sm ${
-                        isRead ? 'bg-emerald-50/40 border-emerald-300' : 'bg-white border-slate-200'
+                        isRead ? 'bg-emerald-50/50 border-emerald-300' : 'bg-white border-slate-200'
                       }`}
                     >
                       {/* Left: Room Badge & Details */}
                       <div className="flex items-center gap-3">
                         <div
-                          className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold font-mono text-base shadow-sm ${
+                          className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold font-mono text-base shadow-sm shrink-0 ${
                             isRead
                               ? 'bg-emerald-600 text-white'
                               : 'bg-slate-800 text-sky-400'
@@ -293,40 +297,49 @@ export default function StaffMeterReadingPage() {
                         <div>
                           <div className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
                             <span>{formatRoomNo(room.room_no)}</span>
-                            <span className="text-[10px] text-slate-500 font-normal">
+                            <span className="text-[10px] text-slate-500 font-normal bg-slate-100 px-1.5 py-0.5 rounded">
                               ชั้น {room.floor}
                             </span>
                           </div>
-                          <div className="text-[11px] text-slate-600 mt-0.5">
-                            ครั้งก่อน: <span className="font-mono font-medium">{prevM}</span>
+                          <div className="text-xs text-slate-600 mt-0.5">
+                            ครั้งก่อน: <span className="font-mono font-bold">{prevM}</span>
                             {isRead && (
-                              <span className="ml-2 text-emerald-700 font-medium">
-                                ครั้งนี้: <b className="font-mono">{currM}</b> (ใช้ {units} น.)
+                              <span className="ml-2 text-emerald-800 font-medium">
+                                ➔ ครั้งนี้: <b className="font-mono text-blue-700">{currM}</b> ({units} หน่วย)
                               </span>
                             )}
                           </div>
                         </div>
                       </div>
 
-                      {/* Right: Status / Action Button */}
-                      <div className="text-right">
-                        {isRead ? (
-                          <div className="flex flex-col items-end">
-                            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-full">
-                              ✅ จดแล้ว
-                            </span>
-                            {log?.meter_photo_url && (
-                              <span className="text-[10px] text-blue-600 mt-1">📷 มีรูป</span>
-                            )}
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            className="px-3.5 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-xl shadow-sm hover:bg-blue-700"
-                          >
-                            จดมิเตอร์
-                          </button>
+                      {/* Right: Thumbnail + Status / Action Button */}
+                      <div className="flex items-center gap-2.5">
+                        {log?.meter_photo_url && (
+                          <img
+                            src={log.meter_photo_url}
+                            alt={`มิเตอร์ ${room.room_no}`}
+                            className="w-12 h-12 object-cover rounded-lg border border-emerald-300 shadow-xs shrink-0"
+                          />
                         )}
+                        <div className="text-right">
+                          {isRead ? (
+                            <div className="flex flex-col items-end">
+                              <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[11px] font-bold rounded-full">
+                                ✅ จดแล้ว
+                              </span>
+                              <span className="text-[10px] text-slate-500 mt-1 underline">
+                                {log?.meter_photo_url ? 'กดเพื่อดู/แก้ไข' : '⚠️ ยังไม่มีรูป (กดเพิ่ม)'}
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="px-3.5 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl shadow-sm hover:bg-blue-700"
+                            >
+                              📸 จดมิเตอร์
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -337,11 +350,14 @@ export default function StaffMeterReadingPage() {
         )}
       </main>
 
-      {/* Meter Reading Camera Modal */}
+      {/* Meter Reading Camera Modal (keyed by room_no to guarantee fresh state) */}
       {readingRoom && (
         <MeterReadingModal
+          key={readingRoom.room_no}
           room={readingRoom}
           period={period}
+          existingLog={logMap[readingRoom.room_no] || null}
+          config={config}
           onClose={() => setReadingRoom(null)}
           onSaved={(updatedRoom) => {
             setRooms((prev) =>
