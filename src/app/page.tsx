@@ -1,8 +1,8 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 1.4 - Complete Admin Portal: Period Switcher, Zero Floor System, Per-Room Bill Editor,
-// Multi-Select Print & LINE Push, 90% KPI & Follow-up Tracker, Monthly/Annual Reports, LINE Unlink & Custom Auto-Reply Manager
+// Version 1.5 - Admin Portal with Easy Month/Year Stepper, Expandable Auto-Next Audit Modal,
+// Separated Water (35 THB) & Wastewater (5 THB), and Multi-Item Bill Editor
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -16,6 +16,40 @@ import { ExpenseModal } from '@/components/ExpenseModal';
 import { MeterReadingModal } from '@/components/MeterReadingModal';
 import { BillEditModal } from '@/components/BillEditModal';
 import { MonthlyReportPrintModal } from '@/components/MonthlyReportPrintModal';
+
+const THAI_MONTHS = [
+  { num: '01', label: '01 - มกราคม' },
+  { num: '02', label: '02 - กุมภาพันธ์' },
+  { num: '03', label: '03 - มีนาคม' },
+  { num: '04', label: '04 - เมษายน' },
+  { num: '05', label: '05 - พฤษภาคม' },
+  { num: '06', label: '06 - มิถุนายน' },
+  { num: '07', label: '07 - กรกฎาคม' },
+  { num: '08', label: '08 - สิงหาคม' },
+  { num: '09', label: '09 - กันยายน' },
+  { num: '10', label: '10 - ตุลาคม' },
+  { num: '11', label: '11 - พฤศจิกายน' },
+  { num: '12', label: '12 - ธันวาคม' },
+];
+
+const YEARS_LIST = ['2025', '2026', '2027', '2028'];
+
+// Helper to shift YYYY-MM by deltaMonths (+1 or -1) without typos
+function shiftYearMonth(ym: string, deltaMonths: number): string {
+  const [yStr, mStr] = (ym || '2026-11').split('-');
+  let year = parseInt(yStr, 10) || 2026;
+  let month = parseInt(mStr, 10) || 11;
+  month += deltaMonths;
+  while (month > 12) {
+    month -= 12;
+    year += 1;
+  }
+  while (month < 1) {
+    month += 12;
+    year -= 1;
+  }
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
 
 export default function AdminCondoApp() {
   const supabase = createClient();
@@ -32,18 +66,11 @@ export default function AdminCondoApp() {
   const [lineRules, setLineRules] = useState<LineAutoReplyRule[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Billing Period & Historical Period Switcher
+  // Viewing Billing Period & Staff Active Billing Period
   const [period, setPeriod] = useState<string>('2026-11');
-  const [availablePeriods, setAvailablePeriods] = useState<string[]>([
-    '2026-12',
-    '2026-11',
-    '2026-10',
-    '2026-09',
-    '2026-08',
-    '2026-07',
-  ]);
+  const [staffActivePeriod, setStaffActivePeriod] = useState<string>('2026-11');
 
-  // Shared Search & Sequential Room Range Filter (Replaces Floor System)
+  // Shared Search & Sequential Room Range Filter (Zero Floor System)
   const [searchQuery, setSearchQuery] = useState('');
   const [roomRange, setRoomRange] = useState<'all' | '1-50' | '51-100' | '101-150' | '151-195'>('all');
   const [auditFilter, setAuditFilter] = useState<'all' | 'has_photo' | 'unverified' | 'verified' | 'anomaly' | 'unread'>('all');
@@ -54,7 +81,7 @@ export default function AdminCondoApp() {
   const [savingRoomNo, setSavingRoomNo] = useState<string | null>(null);
   const [savedToastRoomNo, setSavedToastRoomNo] = useState<string | null>(null);
 
-  // Multi-Select Checkboxes on Tab 2 (Billing & LINE Push)
+  // Multi-Select Checkboxes on Tab 2
   const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
   const [isPushingLine, setIsPushingLine] = useState(false);
   const [pushCustomModalOpen, setPushCustomModalOpen] = useState(false);
@@ -113,8 +140,10 @@ export default function AdminCondoApp() {
           configMap[item.key] = item.value;
         });
         setConfig(configMap);
-        if (!overridePeriod && configMap.CURRENT_BILLING_PERIOD) {
-          activePeriod = configMap.CURRENT_BILLING_PERIOD;
+        const cfgPeriod = configMap.CURRENT_BILLING_PERIOD || '2026-11';
+        setStaffActivePeriod(cfgPeriod);
+        if (!overridePeriod) {
+          activePeriod = cfgPeriod;
           setPeriod(activePeriod);
         }
         setWaterRate(configMap.WATER_RATE_PER_UNIT || '35');
@@ -134,47 +163,26 @@ export default function AdminCondoApp() {
         );
       }
 
-      // 2. Fetch Rooms (001 - 195)
       const { data: roomsData } = await supabase
         .from('rooms')
         .select('*')
         .order('room_no', { ascending: true });
       if (roomsData) setRooms(roomsData as Room[]);
 
-      // 3. Fetch Meter Logs for selected period
       const { data: logsData } = await supabase
         .from('meter_logs')
         .select('*')
         .eq('period', activePeriod);
       if (logsData) setMeterLogs(logsData as MeterLog[]);
 
-      // 4. Fetch all historical meter logs (for Period dropdown & Annual 12-month report)
       const { data: allLogsData } = await supabase
         .from('meter_logs')
         .select('*')
         .order('period', { ascending: false });
       if (allLogsData) {
         setAllYearLogs(allLogsData as MeterLog[]);
-        const distinctPeriods = Array.from(
-          new Set([
-            activePeriod,
-            configMap.CURRENT_BILLING_PERIOD || '2026-11',
-            '2026-12',
-            '2026-11',
-            '2026-10',
-            '2026-09',
-            '2026-08',
-            '2026-07',
-            ...allLogsData.map((l: any) => l.period),
-          ])
-        )
-          .filter(Boolean)
-          .sort()
-          .reverse();
-        setAvailablePeriods(distinctPeriods);
       }
 
-      // 5. Fetch Transactions
       const { data: txData } = await supabase
         .from('transactions')
         .select('*')
@@ -182,7 +190,6 @@ export default function AdminCondoApp() {
         .limit(200);
       if (txData) setTransactions(txData);
 
-      // 6. Fetch LINE Auto-Reply Rules
       const { data: rulesData } = await supabase
         .from('line_auto_replies')
         .select('*')
@@ -199,7 +206,7 @@ export default function AdminCondoApp() {
     fetchData();
   }, []);
 
-  // Switch active viewing period (Historical or New Month)
+  // Switch active viewing period
   const handleSwitchViewingPeriod = async (newPeriod: string) => {
     setPeriod(newPeriod);
     setInlineEdits({});
@@ -212,7 +219,11 @@ export default function AdminCondoApp() {
     try {
       await supabase
         .from('condo_config')
-        .upsert({ key: 'CURRENT_BILLING_PERIOD', value: targetPeriod, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+        .upsert(
+          { key: 'CURRENT_BILLING_PERIOD', value: targetPeriod, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        );
+      setStaffActivePeriod(targetPeriod);
       setConfig((prev) => ({ ...prev, CURRENT_BILLING_PERIOD: targetPeriod }));
       alert(`✅ ตั้งค่ารอบบิลปัจจุบันสำหรับแอปพนักงานจดมิเตอร์ (/meter) เป็นรอบ ${targetPeriod} เรียบร้อยแล้ว`);
     } catch (err: any) {
@@ -220,7 +231,6 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Map of meter logs by room_no
   const logMap = useMemo(() => {
     const map: Record<string, MeterLog> = {};
     meterLogs.forEach((l) => {
@@ -229,7 +239,6 @@ export default function AdminCondoApp() {
     return map;
   }, [meterLogs]);
 
-  // Anomaly helper
   const getRoomAnomaly = (room: Room, log?: MeterLog): string | null => {
     if (!log) return null;
     const prev = Number(log.prev_meter) || 0;
@@ -243,7 +252,6 @@ export default function AdminCondoApp() {
     return null;
   };
 
-  // Stats
   const readCount = useMemo(() => meterLogs.length, [meterLogs]);
   const withPhotoCount = useMemo(() => meterLogs.filter((l) => !!l.meter_photo_url).length, [meterLogs]);
   const verifiedCount = useMemo(() => meterLogs.filter((l) => !!l.is_verified).length, [meterLogs]);
@@ -256,7 +264,6 @@ export default function AdminCondoApp() {
     return Math.round((readCount / rooms.length) * 100);
   }, [readCount, rooms.length]);
 
-  // Filtered Rooms (Sequential Range + Search + Tab Filters)
   const filteredRooms = useMemo(() => {
     return rooms.filter((r) => {
       const formatted = formatRoomNo(r.room_no);
@@ -297,7 +304,6 @@ export default function AdminCondoApp() {
     });
   }, [rooms, searchQuery, roomRange, auditFilter, paymentFilter, activeTab, logMap]);
 
-  // Calculated Bills
   const calculatedBills = useMemo(() => {
     return rooms.map((room) => {
       const log = logMap[room.room_no];
@@ -325,7 +331,6 @@ export default function AdminCondoApp() {
     return map;
   }, [calculatedBills]);
 
-  // Financial Summaries
   const billingSummary = useMemo(() => {
     let totalWaterUnits = 0;
     let totalWaterAmt = 0;
@@ -356,7 +361,6 @@ export default function AdminCondoApp() {
     };
   }, [calculatedBills]);
 
-  // KPI Metrics (Per Proposal Page 5 Section 3.2)
   const paidRoomsCount = useMemo(() => meterLogs.filter((l) => l.is_paid).length, [meterLogs]);
   const unclearSlipCount = useMemo(
     () => meterLogs.filter((l) => l.followup_status === 'unclear_slip').length,
@@ -381,8 +385,8 @@ export default function AdminCondoApp() {
     return rooms.filter((r) => !!r.line_user_id).length;
   }, [rooms]);
 
-  // Inline Save & Verify Meter Reading from Tab 1
-  const handleInlineMeterSave = async (room: Room) => {
+  // Inline Save & Verify Meter Reading from Tab 1 (with Optional Auto-Advance to Next Room!)
+  const handleInlineMeterSave = async (room: Room, autoNext = false) => {
     const log = logMap[room.room_no];
     const draft = inlineEdits[room.room_no];
 
@@ -464,7 +468,19 @@ export default function AdminCondoApp() {
       setSavedToastRoomNo(room.room_no);
       setTimeout(() => {
         setSavedToastRoomNo((prev) => (prev === room.room_no ? null : prev));
-      }, 2500);
+      }, 2000);
+
+      // If autoNext is true, automatically advance to the next room in filteredRooms!
+      if (autoNext) {
+        const list = filteredRooms.length > 0 ? filteredRooms : rooms;
+        const currIdx = list.findIndex((r) => r.room_no === room.room_no);
+        if (currIdx >= 0 && currIdx + 1 < list.length) {
+          setLightboxRoom(list[currIdx + 1]);
+        } else {
+          setLightboxRoom(null);
+          alert('🎉 คุณตรวจสอบครบทุกห้องในรายการนี้แล้ว!');
+        }
+      }
     } catch (err: any) {
       alert('บันทึกเลขมิเตอร์ไม่สำเร็จ: ' + err.message);
     } finally {
@@ -472,7 +488,17 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Verify all read logs in 1 click
+  // Navigate to Previous or Next Room inside Expanded Lightbox Modal
+  const handleNavigateLightboxRoom = (direction: -1 | 1) => {
+    if (!lightboxRoom) return;
+    const list = filteredRooms.length > 0 ? filteredRooms : rooms;
+    const currIdx = list.findIndex((r) => r.room_no === lightboxRoom.room_no);
+    const nextIdx = currIdx + direction;
+    if (nextIdx >= 0 && nextIdx < list.length) {
+      setLightboxRoom(list[nextIdx]);
+    }
+  };
+
   const handleVerifyAllReadLogs = async () => {
     try {
       await supabase
@@ -486,7 +512,6 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Open Print Preview (All, Selected Batch, or Single Room; Invoice or Receipt)
   const handleOpenPrint = async (
     docType: 'invoice' | 'receipt' = 'invoice',
     targetRoomNos: string[] = []
@@ -518,7 +543,6 @@ export default function AdminCondoApp() {
     setShowPrintModal(true);
   };
 
-  // Push LINE Bill or Custom Message to Single Room or Selected Batch
   const handlePushLine = async (
     targetRoomNos: string[],
     mode: 'bill' | 'custom' = 'bill',
@@ -556,7 +580,6 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Update Follow-up Status on Tab 3 (Payments & AR)
   const handleUpdateFollowup = async (
     room: Room,
     status: 'none' | 'line_notified' | 'phone_called' | 'unclear_slip'
@@ -604,7 +627,6 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Revert / Cancel Payment if entered by mistake
   const handleCancelPayment = async (room: Room) => {
     const log = logMap[room.room_no];
     if (!log) return;
@@ -624,7 +646,6 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Unlink LINE OA User from a Room (For changing tenant/owner/recipient)
   const handleUnlinkLineRoom = async (room: Room) => {
     const ok = window.confirm(
       `🔓 ยืนยันการยกเลิกผูกบัญชี LINE ของห้อง ${formatRoomNo(room.room_no)} (${room.owner_name || room.tenant_name || '-'})?\n\nหลังจากยกเลิกแล้ว ผู้รับคนเดิมจะไม่สามารถดูบิลห้องนี้ได้อีก และผู้รับคนใหม่สามารถพิมพ์รหัส 6 หลักเข้ามาลงทะเบียนผูกห้องแทนได้ทันที`
@@ -646,7 +667,6 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Save or Create LINE Auto-Reply Rule
   const handleSaveLineRule = async () => {
     if (!editingRule || !editingRule.keyword?.trim() || !editingRule.reply_text?.trim()) {
       alert('กรุณากรอกคีย์เวิร์ดและข้อความตอบกลับ');
@@ -705,14 +725,12 @@ export default function AdminCondoApp() {
     );
   };
 
-  // Delete Accounting Transaction
   const handleDeleteTransaction = async (id: string) => {
     if (!window.confirm('ยืนยันการลบรายการบัญชีนี้?')) return;
     await supabase.from('transactions').delete().eq('id', id);
     setTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Test LINE Verification Code
   const handleTestLineCode = () => {
     const clean = testLineCode.replace(/[^0-9]/g, '');
     if (clean.length !== 6) {
@@ -748,7 +766,6 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Save Settings
   const handleSaveSettings = async () => {
     try {
       const updates = [
@@ -761,7 +778,7 @@ export default function AdminCondoApp() {
         { key: 'BANK_ACCOUNT_NO', value: bankAccNo },
         { key: 'BANK_ACCOUNT_NAME', value: bankAccName },
         { key: 'BILL_DUE_DAY', value: dueDay },
-        { key: 'CURRENT_BILLING_PERIOD', value: period },
+        { key: 'CURRENT_BILLING_PERIOD', value: staffActivePeriod },
         { key: 'LINE_CHANNEL_SECRET', value: lineSecret },
         { key: 'LINE_CHANNEL_ACCESS_TOKEN', value: lineAccessToken },
         { key: 'LINE_GREETING_MESSAGE', value: lineGreetingMsg },
@@ -784,7 +801,7 @@ export default function AdminCondoApp() {
         BANK_ACCOUNT_NO: bankAccNo,
         BANK_ACCOUNT_NAME: bankAccName,
         BILL_DUE_DAY: dueDay,
-        CURRENT_BILLING_PERIOD: period,
+        CURRENT_BILLING_PERIOD: staffActivePeriod,
         LINE_CHANNEL_SECRET: lineSecret,
         LINE_CHANNEL_ACCESS_TOKEN: lineAccessToken,
         LINE_GREETING_MESSAGE: lineGreetingMsg,
@@ -797,7 +814,6 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Export CSV Backup
   const handleExportCsv = () => {
     const headers = [
       'Room',
@@ -808,7 +824,8 @@ export default function AdminCondoApp() {
       'PrevMeter',
       'CurrMeter',
       'Units',
-      'Water+Waste',
+      'Water35',
+      'Wastewater5',
       'CommonFee',
       'SpecialItems',
       'CreditDeducted',
@@ -827,7 +844,8 @@ export default function AdminCondoApp() {
         b.prev_meter,
         b.curr_meter,
         b.units_used,
-        b.water_amount + b.wastewater_amount,
+        b.water_amount,
+        b.wastewater_amount,
         b.common_fee,
         b.special_items,
         b.contribution_deducted + b.prepaid_deducted,
@@ -845,9 +863,13 @@ export default function AdminCondoApp() {
     URL.revokeObjectURL(url);
   };
 
+  // Parse current period into year & month for dropdowns
+  const [viewYear, viewMonth] = (period || '2026-11').split('-');
+  const [staffYear, staffMonth] = (staffActivePeriod || '2026-11').split('-');
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800">
-      {/* Top Header with Period Switcher (View History or Open New Period) */}
+      {/* Top Header with Easy Period Stepper (Zero Manual Typing!) */}
       <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -858,41 +880,70 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v1.4
+                  ระบบบริหารนิติบุคคล v1.5
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
                 195 ห้องชุด (645/001 – 645/195) • รอบบิลพนักงานปัจจุบัน:{' '}
-                <b className="text-sky-300">{config.CURRENT_BILLING_PERIOD || period}</b>
+                <b className="text-sky-300">{staffActivePeriod}</b>
               </p>
             </div>
           </div>
 
-          {/* Right Controls: Period Switcher + Open Staff Meter App */}
+          {/* Right Controls: Easy Month/Year Stepper + Open Staff Meter App */}
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            {/* Period Switcher Dropdown (View Historical Months) */}
-            <div className="bg-slate-800 px-2.5 py-1.5 rounded-xl flex items-center gap-2 border border-slate-700">
-              <span className="text-slate-300 text-[11px]">📅 ดูรอบบิล/ย้อนหลัง:</span>
-              <select
-                value={period}
-                onChange={(e) => handleSwitchViewingPeriod(e.target.value)}
-                className="bg-slate-900 text-sky-400 font-mono font-bold px-2 py-1 rounded-lg border border-slate-600 outline-none"
+            <div className="bg-slate-800 px-2.5 py-1.5 rounded-xl flex items-center gap-1.5 border border-slate-700">
+              <span className="text-slate-300 text-[11px] mr-1">📅 รอบบิลที่ดู:</span>
+              <button
+                type="button"
+                onClick={() => handleSwitchViewingPeriod(shiftYearMonth(period, -1))}
+                className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-bold"
+                title="เลื่อนไปเดือนก่อนหน้า"
               >
-                {availablePeriods.map((p) => (
-                  <option key={p} value={p}>
-                    {p} {p === config.CURRENT_BILLING_PERIOD ? '(รอบปัจจุบัน)' : ''}
+                ◀
+              </button>
+
+              <select
+                value={viewMonth || '11'}
+                onChange={(e) => handleSwitchViewingPeriod(`${viewYear || '2026'}-${e.target.value}`)}
+                className="bg-slate-900 text-sky-400 font-bold px-2 py-1 rounded-lg border border-slate-600 outline-none"
+              >
+                {THAI_MONTHS.map((m) => (
+                  <option key={m.num} value={m.num}>
+                    {m.label}
                   </option>
                 ))}
               </select>
 
-              {period !== config.CURRENT_BILLING_PERIOD && (
+              <select
+                value={viewYear || '2026'}
+                onChange={(e) => handleSwitchViewingPeriod(`${e.target.value}-${viewMonth || '11'}`)}
+                className="bg-slate-900 text-sky-400 font-mono font-bold px-2 py-1 rounded-lg border border-slate-600 outline-none"
+              >
+                {YEARS_LIST.map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => handleSwitchViewingPeriod(shiftYearMonth(period, 1))}
+                className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-bold"
+                title="เลื่อนไปเดือนถัดไป"
+              >
+                ▶
+              </button>
+
+              {period !== staffActivePeriod && (
                 <button
                   type="button"
                   onClick={() => handleSetAsActiveStaffPeriod(period)}
-                  className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-[10px]"
+                  className="ml-1 px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg text-[10px]"
                   title="ตั้งให้แอปพนักงาน /meter เปลี่ยนไปจดรอบบิลนี้"
                 >
-                  ⏭️ ตั้งเป็นรอบปัจจุบัน
+                  ⏭️ ตั้งเป็นรอบพนักงาน
                 </button>
               )}
             </div>
@@ -955,7 +1006,7 @@ export default function AdminCondoApp() {
           </div>
         ) : (
           <>
-            {/* Shared Search & Sequential Room Range Filter Bar (Zero Floor System!) */}
+            {/* Shared Search & Sequential Room Range Filter Bar */}
             {['audit', 'billing', 'payments', 'rooms'].includes(activeTab) && (
               <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-2.5 text-xs">
                 <div className="relative flex-1 min-w-[240px]">
@@ -1004,7 +1055,7 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 1: METER VERIFICATION & PHOTO AUDIT                               */}
+            {/* TAB 1: METER VERIFICATION & PHOTO AUDIT (WITH EXPAND & AUTO-NEXT!)     */}
             {/* ===================================================================== */}
             {activeTab === 'audit' && (
               <div className="space-y-4">
@@ -1060,7 +1111,7 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* Audit Filter Buttons */}
+                {/* Audit Filter Buttons + Launch Expandable Continuous Inspector */}
                 <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-2xl border border-slate-200 text-xs">
                   <div className="flex flex-wrap gap-1.5">
                     {[
@@ -1086,13 +1137,26 @@ export default function AdminCondoApp() {
                     ))}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => fetchData(period)}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl flex items-center gap-1"
-                  >
-                    🔄 รีเฟรชข้อมูลล่าสุด
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (filteredRooms.length > 0) {
+                          setLightboxRoom(filteredRooms[0]);
+                        }
+                      }}
+                      className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white font-bold rounded-xl shadow flex items-center gap-1.5"
+                    >
+                      🔍 เปิดโหมดขยายตรวจต่อเนื่องทีละห้อง ▶
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchData(period)}
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl"
+                    >
+                      🔄 รีเฟรช
+                    </button>
+                  </div>
                 </div>
 
                 {/* Side-by-Side Photo vs Meter Numbers Cards */}
@@ -1123,6 +1187,8 @@ export default function AdminCondoApp() {
                       const prevNum = Number(prevVal) || 0;
                       const currNum = currVal === '' ? prevNum : Number(currVal);
                       const unitsUsed = Math.max(0, currNum - prevNum);
+                      const waterAmt = unitsUsed * (Number(waterRate) || 35);
+                      const wasteAmt = unitsUsed * (Number(wastewaterRate) || 5);
                       const anomaly = getRoomAnomaly(room, log);
 
                       return (
@@ -1152,7 +1218,7 @@ export default function AdminCondoApp() {
                                 />
                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition flex items-center justify-center">
                                   <span className="bg-black/75 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow">
-                                    🔍 คลิกขยายรูปใหญ่
+                                    🔍 ขยายตรวจ & ถัดไป
                                   </span>
                                 </div>
                               </div>
@@ -1171,13 +1237,22 @@ export default function AdminCondoApp() {
                               </div>
                             )}
 
-                            <button
-                              type="button"
-                              onClick={() => setReadingModalRoom(room)}
-                              className="mt-2 w-full py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition"
-                            >
-                              📸 ถ่าย/เปลี่ยนรูปมิเตอร์
-                            </button>
+                            <div className="grid grid-cols-2 gap-1 mt-2">
+                              <button
+                                type="button"
+                                onClick={() => setLightboxRoom(room)}
+                                className="py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] rounded-lg transition"
+                              >
+                                🔍 ขยายตรวจ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setReadingModalRoom(room)}
+                                className="py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] rounded-lg transition"
+                              >
+                                📸 เปลี่ยนรูป
+                              </button>
+                            </div>
                           </div>
 
                           {/* RIGHT: METER NUMBERS COMPARISON & INLINE EDIT */}
@@ -1212,11 +1287,6 @@ export default function AdminCondoApp() {
 
                               <div className="text-[11px] text-slate-500 mt-0.5">
                                 {room.owner_name || 'เจ้าของห้อง'}
-                                {log?.recorded_at && (
-                                  <span className="ml-2 text-slate-400">
-                                    • {new Date(log.recorded_at).toLocaleString('th-TH')}
-                                  </span>
-                                )}
                               </div>
 
                               {anomaly && (
@@ -1226,7 +1296,7 @@ export default function AdminCondoApp() {
                               )}
                             </div>
 
-                            {/* Side-by-Side Number Inputs */}
+                            {/* Side-by-Side Number Inputs + Separated Water (35) & Wastewater (5) */}
                             <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                               <div>
                                 <label className="text-[10px] text-slate-500 block mb-0.5">
@@ -1270,26 +1340,26 @@ export default function AdminCondoApp() {
                               </div>
 
                               <div className="flex flex-col justify-center items-end pr-1">
-                                <span className="text-[10px] text-slate-500">หน่วยน้ำที่ใช้</span>
-                                <span className="text-base font-bold font-mono text-emerald-700">
-                                  {unitsUsed} <span className="text-[10px] font-normal">หน่วย</span>
+                                <span className="text-sm font-bold font-mono text-emerald-700">
+                                  ใช้ {unitsUsed} หน่วย
+                                </span>
+                                <span className="text-[10px] text-slate-600">
+                                  ค่าน้ำ(35): {waterAmt.toLocaleString()} บ.
                                 </span>
                                 <span className="text-[10px] text-slate-500">
-                                  {(unitsUsed * (Number(waterRate) + Number(wastewaterRate))).toLocaleString()} บ.
+                                  บำบัด(5): {wasteAmt.toLocaleString()} บ.
                                 </span>
                               </div>
                             </div>
 
                             <div className="flex items-center justify-between gap-2">
-                              {log?.note ? (
-                                <span className="text-[11px] text-amber-700 truncate">
-                                  💬 {log.note}
-                                </span>
-                              ) : (
-                                <span className="text-[11px] text-slate-400">
-                                  กดบันทึกเพื่อยืนยันความถูกต้อง
-                                </span>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => setLightboxRoom(room)}
+                                className="text-[11px] text-indigo-600 hover:underline font-bold"
+                              >
+                                🔍 ขยายเต็มจอ
+                              </button>
 
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {savedToastRoomNo === room.room_no && (
@@ -1300,8 +1370,8 @@ export default function AdminCondoApp() {
                                 <button
                                   type="button"
                                   disabled={savingRoomNo === room.room_no}
-                                  onClick={() => handleInlineMeterSave(room)}
-                                  className={`px-3.5 py-1.5 font-bold rounded-xl shadow-xs text-xs transition disabled:opacity-50 ${
+                                  onClick={() => handleInlineMeterSave(room, false)}
+                                  className={`px-3 py-1.5 font-bold rounded-xl shadow-xs text-xs transition disabled:opacity-50 ${
                                     isVerified
                                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                                       : 'bg-blue-600 hover:bg-blue-700 text-white'
@@ -1310,8 +1380,8 @@ export default function AdminCondoApp() {
                                   {savingRoomNo === room.room_no
                                     ? 'กำลังบันทึก...'
                                     : isVerified
-                                    ? '✅ ยืนยันแล้ว (บันทึกซ้ำ)'
-                                    : '💾 บันทึก & ยืนยันเลข'}
+                                    ? '✅ ยืนยันแล้ว'
+                                    : '💾 บันทึกยืนยัน'}
                                 </button>
                               </div>
                             </div>
@@ -1325,18 +1395,17 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 2: BILLING, PER-ROOM DISCOUNTS/CHARGES, MULTI-SELECT PRINT & LINE */}
+            {/* TAB 2: BILLING (EXPLICIT WATER 35 THB & WASTEWATER 5 THB COLUMNS!)    */}
             {/* ===================================================================== */}
             {activeTab === 'billing' && (
               <div className="space-y-4">
-                {/* Billing Top Summary & Global Actions */}
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
                   <div>
                     <h2 className="font-bold text-slate-800 text-base">
                       ระบบออกบิล / ปรับปรุงรายการ / ส่งบิล LINE (รอบบิล {period})
                     </h2>
                     <p className="text-xs text-slate-500">
-                      แก้ไขเพิ่มค่าใช้จ่ายหรือใส่ส่วนลดรายห้อง • ติ๊กเลือกห้องเพื่อพิมพ์บิลหรือส่งแจ้งเตือนเข้าแชต LINE OA
+                      แยกแสดงค่าน้ำประปา (35 บ./หน่วย) และค่าบำบัดน้ำเสีย (5 บ./หน่วย) • กด &quot;✏️ แก้บิล&quot; เพื่อเพิ่มหรือลบรายการย่อย
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1411,7 +1480,6 @@ export default function AdminCondoApp() {
                     )}
                   </div>
 
-                  {/* Actions on Selected Rooms */}
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -1440,23 +1508,29 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* Calculation Cards Summary */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                {/* Separated Calculation Cards Summary (Water 35 vs Wastewater 5) */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
                   <div className="bg-white p-3 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">รวมค่าน้ำ + บำบัด</span>
-                    <span className="text-base font-bold text-slate-800">
-                      {(billingSummary.totalWaterAmt + billingSummary.totalWastewaterAmt).toLocaleString()} บ.
+                    <span className="text-slate-500 block">1. รวมค่าน้ำประปา (35 บ./น.)</span>
+                    <span className="text-base font-bold text-slate-800 font-mono">
+                      {billingSummary.totalWaterAmt.toLocaleString()} บ.
                     </span>
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">รวมค่าส่วนกลาง</span>
-                    <span className="text-base font-bold text-slate-800">
+                    <span className="text-slate-500 block">2. รวมค่าบำบัดน้ำเสีย (5 บ./น.)</span>
+                    <span className="text-base font-bold text-slate-800 font-mono">
+                      {billingSummary.totalWastewaterAmt.toLocaleString()} บ.
+                    </span>
+                  </div>
+                  <div className="bg-white p-3 rounded-xl border border-slate-200">
+                    <span className="text-slate-500 block">3. รวมค่าส่วนกลาง</span>
+                    <span className="text-base font-bold text-slate-800 font-mono">
                       {billingSummary.totalCommonFee.toLocaleString()} บ.
                     </span>
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-slate-200">
                     <span className="text-slate-500 block">หักเครดิตสมทบทุนซ่อมตึก</span>
-                    <span className="text-base font-bold text-emerald-700">
+                    <span className="text-base font-bold text-emerald-700 font-mono">
                       -{billingSummary.totalContribDeducted.toLocaleString()} บ.
                     </span>
                   </div>
@@ -1468,13 +1542,13 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* Bills Management Table */}
+                {/* Bills Management Table with Separate Water (35) & Wastewater (5) Columns */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-600 border-b">
                         <tr>
-                          <th className="py-2.5 px-2.5 text-center w-8">
+                          <th className="py-2.5 px-2 text-center w-8">
                             <input
                               type="checkbox"
                               checked={
@@ -1491,15 +1565,16 @@ export default function AdminCondoApp() {
                               className="rounded"
                             />
                           </th>
-                          <th className="py-2.5 px-2.5 text-left">ห้อง</th>
-                          <th className="py-2.5 px-2.5 text-right">มิเตอร์ (หน่วย)</th>
-                          <th className="py-2.5 px-2.5 text-right">ค่าน้ำ+บำบัด</th>
-                          <th className="py-2.5 px-2.5 text-right">ส่วนกลาง</th>
-                          <th className="py-2.5 px-2.5 text-right">เพิ่ม/ส่วนลดพิเศษ</th>
-                          <th className="py-2.5 px-2.5 text-right">หักเครดิต/เงินฝาก</th>
-                          <th className="py-2.5 px-2.5 text-right font-bold">ยอดเรียกเก็บสุทธิ</th>
-                          <th className="py-2.5 px-2.5 text-center">สถานะ LINE</th>
-                          <th className="py-2.5 px-2.5 text-center">จัดการบิล / พิมพ์ / ส่ง LINE</th>
+                          <th className="py-2.5 px-2 text-left">ห้อง</th>
+                          <th className="py-2.5 px-2 text-right">มิเตอร์ (หน่วย)</th>
+                          <th className="py-2.5 px-2 text-right">ค่าน้ำ (35 บ.)</th>
+                          <th className="py-2.5 px-2 text-right">ค่าบำบัด (5 บ.)</th>
+                          <th className="py-2.5 px-2 text-right">ส่วนกลาง</th>
+                          <th className="py-2.5 px-2 text-right">รายการเพิ่ม/ส่วนลด</th>
+                          <th className="py-2.5 px-2 text-right">หักเครดิต/เงินฝาก</th>
+                          <th className="py-2.5 px-2 text-right font-bold">ยอดสุทธิ</th>
+                          <th className="py-2.5 px-2 text-center">สถานะ LINE</th>
+                          <th className="py-2.5 px-2 text-center">จัดการบิล / พิมพ์ / ส่ง LINE</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y text-slate-800">
@@ -1516,7 +1591,7 @@ export default function AdminCondoApp() {
                               key={room.room_no}
                               className={`hover:bg-slate-50 ${isSelected ? 'bg-blue-50/40' : ''}`}
                             >
-                              <td className="py-2 px-2.5 text-center">
+                              <td className="py-2 px-2 text-center">
                                 <input
                                   type="checkbox"
                                   checked={isSelected}
@@ -1530,25 +1605,28 @@ export default function AdminCondoApp() {
                                   className="rounded"
                                 />
                               </td>
-                              <td className="py-2 px-2.5">
+                              <td className="py-2 px-2">
                                 <div className="font-bold text-blue-700 font-mono">{bill.formatted_room}</div>
-                                <div className="text-[10px] text-slate-500 truncate max-w-[110px]">
+                                <div className="text-[10px] text-slate-500 truncate max-w-[100px]">
                                   {room.owner_name || '-'}
                                 </div>
                               </td>
-                              <td className="py-2 px-2.5 text-right font-mono">
+                              <td className="py-2 px-2 text-right font-mono">
                                 <span className="text-slate-500 text-[11px]">
                                   {bill.prev_meter}➔{bill.curr_meter}
                                 </span>{' '}
                                 <b className="text-slate-900">({bill.units_used})</b>
                               </td>
-                              <td className="py-2 px-2.5 text-right font-mono">
-                                {(bill.water_amount + bill.wastewater_amount).toFixed(2)}
+                              <td className="py-2 px-2 text-right font-mono">
+                                {bill.water_amount.toFixed(2)}
                               </td>
-                              <td className="py-2 px-2.5 text-right font-mono">
+                              <td className="py-2 px-2 text-right font-mono">
+                                {bill.wastewater_amount.toFixed(2)}
+                              </td>
+                              <td className="py-2 px-2 text-right font-mono">
                                 {bill.common_fee.toFixed(2)}
                               </td>
-                              <td className="py-2 px-2.5 text-right font-mono">
+                              <td className="py-2 px-2 text-right font-mono">
                                 {bill.special_items !== 0 || bill.late_fee > 0 ? (
                                   <div>
                                     <span
@@ -1561,7 +1639,7 @@ export default function AdminCondoApp() {
                                         : (bill.special_items + bill.late_fee).toFixed(2)}
                                     </span>
                                     {bill.special_items_note && (
-                                      <div className="text-[10px] text-slate-500 truncate max-w-[110px]">
+                                      <div className="text-[10px] text-slate-500 truncate max-w-[120px]">
                                         {bill.special_items_note}
                                       </div>
                                     )}
@@ -1570,15 +1648,15 @@ export default function AdminCondoApp() {
                                   <span className="text-slate-300">-</span>
                                 )}
                               </td>
-                              <td className="py-2 px-2.5 text-right font-mono text-emerald-600">
+                              <td className="py-2 px-2 text-right font-mono text-emerald-600">
                                 {bill.contribution_deducted + bill.prepaid_deducted > 0
                                   ? `-${(bill.contribution_deducted + bill.prepaid_deducted).toFixed(2)}`
                                   : '-'}
                               </td>
-                              <td className="py-2 px-2.5 text-right font-mono font-bold text-blue-700">
+                              <td className="py-2 px-2 text-right font-mono font-bold text-blue-700">
                                 {bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                               </td>
-                              <td className="py-2 px-2.5 text-center">
+                              <td className="py-2 px-2 text-center">
                                 {log?.line_push_status ? (
                                   <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
                                     ✅ {log.line_push_status}
@@ -1593,13 +1671,12 @@ export default function AdminCondoApp() {
                                   </span>
                                 )}
                               </td>
-                              <td className="py-2 px-2.5 text-center">
+                              <td className="py-2 px-2 text-center">
                                 <div className="flex items-center justify-center gap-1">
                                   <button
                                     type="button"
                                     onClick={() => setBillEditRoom(room)}
                                     className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg font-bold text-[11px]"
-                                    title="แก้ไขบิล / เพิ่มค่าใช้จ่าย / ใส่ส่วนลด"
                                   >
                                     ✏️ แก้บิล
                                   </button>
@@ -1609,7 +1686,6 @@ export default function AdminCondoApp() {
                                       handleOpenPrint(isPaid ? 'receipt' : 'invoice', [room.room_no])
                                     }
                                     className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px]"
-                                    title="พิมพ์บิลหรือใบเสร็จเฉพาะห้องนี้"
                                   >
                                     {isPaid ? '🧾 ใบเสร็จ' : '🖨️ พิมพ์'}
                                   </button>
@@ -1619,7 +1695,6 @@ export default function AdminCondoApp() {
                                       disabled={isPushingLine}
                                       onClick={() => handlePushLine([room.room_no], 'bill')}
                                       className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px]"
-                                      title="ส่งบิลเข้าแชต LINE ห้องนี้ทันที"
                                     >
                                       📲 ส่ง LINE
                                     </button>
@@ -1641,7 +1716,6 @@ export default function AdminCondoApp() {
             {/* ===================================================================== */}
             {activeTab === 'payments' && (
               <div className="space-y-4">
-                {/* KPI Cards Banner (Per Proposal Page 5 Section 3.2) */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
                     <div className="flex justify-between items-center mb-1">
@@ -1689,7 +1763,6 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* Follow-up Status Filter Buttons */}
                 <div className="bg-white p-3 rounded-2xl border border-slate-200 flex flex-wrap gap-1.5 text-xs">
                   {[
                     { id: 'all', label: `ทั้งหมด (${rooms.length})` },
@@ -1715,7 +1788,6 @@ export default function AdminCondoApp() {
                   ))}
                 </div>
 
-                {/* Rooms Payment & Follow-up Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {filteredRooms.map((room) => {
                     const log = logMap[room.room_no];
@@ -1754,14 +1826,19 @@ export default function AdminCondoApp() {
                             </span>
                           </div>
 
-                          <div className="bg-slate-50 p-2 rounded-xl flex justify-between items-center text-xs my-2 border border-slate-100">
-                            <span className="text-slate-500">ยอดสุทธิรอบนี้:</span>
-                            <span className="font-bold font-mono text-slate-900 text-sm">
-                              {dueAmt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
-                            </span>
+                          <div className="bg-slate-50 p-2 rounded-xl text-xs my-2 border border-slate-100 space-y-0.5">
+                            <div className="flex justify-between text-[11px] text-slate-500">
+                              <span>ค่าน้ำ(35): {bill?.water_amount.toLocaleString()} บ.</span>
+                              <span>บำบัด(5): {bill?.wastewater_amount.toLocaleString()} บ.</span>
+                            </div>
+                            <div className="flex justify-between items-center pt-1 border-t border-slate-200">
+                              <span className="text-slate-600 font-medium">ยอดสุทธิรอบนี้:</span>
+                              <span className="font-bold font-mono text-slate-900 text-sm">
+                                {dueAmt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
+                              </span>
+                            </div>
                           </div>
 
-                          {/* Follow-up Status Pills (Per Proposal Page 3: LINE Chat -> Phone Call -> Unclear Evidence) */}
                           {!isPaid && (
                             <div className="space-y-1.5 mb-2">
                               <span className="text-[10px] text-slate-400 block">
@@ -1821,7 +1898,6 @@ export default function AdminCondoApp() {
                           )}
                         </div>
 
-                        {/* Bottom Action Buttons */}
                         <div className="pt-2 border-t flex flex-wrap gap-1.5">
                           {!isPaid ? (
                             <>
@@ -1890,7 +1966,7 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 4: ROOMS & WALLETS (Sequential 001 - 195, Zero Floor Column)      */}
+            {/* TAB 4: ROOMS & WALLETS                                                */}
             {/* ===================================================================== */}
             {activeTab === 'rooms' && (
               <div className="space-y-4">
@@ -2028,14 +2104,13 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* Water Reconciliation Card with PWA Bill Comparison */}
                 <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-2xl space-y-3 text-xs">
                   <div>
                     <h3 className="font-bold text-blue-900 text-sm">
                       💧 กระทบยอดส่วนต่างค่าน้ำประปา (เทียบ 195 ห้อง กับ บิลการประปานครหลวง)
                     </h3>
                     <p className="text-blue-700">
-                      กรอกหน่วยน้ำและยอดเงินจากบิลการประปา เพื่อตรวจสอบน้ำสูญเสียในท่อส่วนกลาง
+                      ค่าน้ำประปา 35 บาท/หน่วย ({billingSummary.totalWaterAmt.toLocaleString()} บ.) + ค่าบำบัดน้ำเสีย 5 บาท/หน่วย ({billingSummary.totalWastewaterAmt.toLocaleString()} บ.)
                     </p>
                   </div>
 
@@ -2046,8 +2121,7 @@ export default function AdminCondoApp() {
                         {billingSummary.totalWaterUnits.toLocaleString()} หน่วย
                       </span>
                       <span className="text-[11px] text-slate-500 block">
-                        เรียกเก็บค่าน้ำ+บำบัด:{' '}
-                        {(billingSummary.totalWaterAmt + billingSummary.totalWastewaterAmt).toLocaleString()} บ.
+                        ค่าน้ำ {billingSummary.totalWaterAmt.toLocaleString()} + บำบัด {billingSummary.totalWastewaterAmt.toLocaleString()} บ.
                       </span>
                     </div>
 
@@ -2103,7 +2177,6 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* Transactions Table */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="p-3 border-b flex justify-between items-center">
                     <h4 className="font-bold text-slate-800 text-xs">รายการรับ-จ่ายล่าสุด</h4>
@@ -2183,7 +2256,6 @@ export default function AdminCondoApp() {
             {/* ===================================================================== */}
             {activeTab === 'line' && (
               <div className="space-y-4">
-                {/* 1. Custom Keyword Auto-Reply Manager */}
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
                     <div>
@@ -2213,10 +2285,9 @@ export default function AdminCondoApp() {
                     </button>
                   </div>
 
-                  {/* Available Dynamic Placeholders Reference */}
                   <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-1">
                     <span className="font-bold text-slate-700 block">
-                      💡 ตัวแปรอัตโนมัติที่นำมาใส่ในข้อความตอบกลับได้ (ระบบจะแทนที่ด้วยข้อมูลจริงของห้องนั้นทันที):
+                      💡 ตัวแปรอัตโนมัติที่นำมาใส่ในข้อความตอบกลับได้:
                     </span>
                     <div className="flex flex-wrap gap-1.5 text-[11px] font-mono text-blue-700 pt-1">
                       {[
@@ -2225,7 +2296,8 @@ export default function AdminCondoApp() {
                         '{owner_name}',
                         '{period}',
                         '{water_units}',
-                        '{water_total}',
+                        '{water_amount}',
+                        '{wastewater_amount}',
                         '{common_fee}',
                         '{total_due}',
                         '{payment_status}',
@@ -2245,7 +2317,6 @@ export default function AdminCondoApp() {
                     </div>
                   </div>
 
-                  {/* Add / Edit Rule Form */}
                   {editingRule && (
                     <div className="bg-blue-50/60 border-2 border-blue-400 p-4 rounded-2xl space-y-3">
                       <h3 className="font-bold text-blue-900 text-sm">
@@ -2339,7 +2410,6 @@ export default function AdminCondoApp() {
                     </div>
                   )}
 
-                  {/* Rules List Table */}
                   <div className="overflow-x-auto border rounded-xl">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-600 border-b">
@@ -2429,7 +2499,6 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* 2. Room Registration Table with "🔓 ยกเลิกการผูก LINE" Button */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-xs">
                   <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
                     <div>
@@ -2441,7 +2510,6 @@ export default function AdminCondoApp() {
                       </p>
                     </div>
 
-                    {/* Quick Test Registration Code */}
                     <div className="flex gap-1.5">
                       <input
                         type="text"
@@ -2544,14 +2612,14 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 7: SETTINGS & CSV EXPORT                                          */}
+            {/* TAB 7: SETTINGS (WITH EASY MONTH/YEAR STEPPER — ZERO TYPING!)         */}
             {/* ===================================================================== */}
             {activeTab === 'settings' && (
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v1.4)</h2>
-                    <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และสำรองข้อมูล</p>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v1.5)</h2>
+                    <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
                     type="button"
@@ -2567,6 +2635,57 @@ export default function AdminCondoApp() {
                     ✅ บันทึกการตั้งค่าเรียบร้อยแล้ว
                   </div>
                 )}
+
+                {/* Easy Period Stepper for Staff App (No Manual Typing!) */}
+                <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-2xl space-y-2">
+                  <label className="text-blue-900 font-bold text-sm block">
+                    📅 รอบบิลปัจจุบัน (สำหรับแอปพนักงานจดมิเตอร์ /meter)
+                  </label>
+                  <p className="text-blue-700 text-[11px]">
+                    กดปุ่มเลื่อนเดือน หรือเลือกเดือน/ปีจากรายการเพื่อป้องกันการพิมพ์ผิดพลาด
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setStaffActivePeriod(shiftYearMonth(staffActivePeriod, -1))}
+                      className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-blue-300 rounded-xl font-bold text-blue-800 shadow-xs"
+                    >
+                      ◀ เดือนก่อนหน้า
+                    </button>
+
+                    <select
+                      value={staffMonth || '11'}
+                      onChange={(e) => setStaffActivePeriod(`${staffYear || '2026'}-${e.target.value}`)}
+                      className="border-2 border-blue-500 rounded-xl px-3 py-2 bg-white font-bold text-blue-900 text-sm"
+                    >
+                      {THAI_MONTHS.map((m) => (
+                        <option key={m.num} value={m.num}>
+                          เดือน {m.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={staffYear || '2026'}
+                      onChange={(e) => setStaffActivePeriod(`${e.target.value}-${staffMonth || '11'}`)}
+                      className="border-2 border-blue-500 rounded-xl px-3 py-2 bg-white font-mono font-bold text-blue-900 text-sm"
+                    >
+                      {YEARS_LIST.map((y) => (
+                        <option key={y} value={y}>
+                          ปี ค.ศ. {y}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => setStaffActivePeriod(shiftYearMonth(staffActivePeriod, 1))}
+                      className="px-3.5 py-2 bg-white hover:bg-slate-100 border border-blue-300 rounded-xl font-bold text-blue-800 shadow-xs"
+                    >
+                      เดือนถัดไป ▶
+                    </button>
+                  </div>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -2689,27 +2808,19 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                <div className="border-t pt-3 grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-slate-700 font-bold block mb-1">รอบบิลปัจจุบัน (สำหรับแอปพนักงาน)</label>
-                    <input
-                      type="text"
-                      value={period}
-                      onChange={(e) => setPeriod(e.target.value)}
-                      placeholder="YYYY-MM เช่น 2026-11"
-                      className="w-full border rounded-lg p-2 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-slate-700 font-bold block mb-1">วันที่ครบกำหนดชำระของทุกเดือน</label>
-                    <input
-                      type="number"
-                      value={dueDay}
-                      onChange={(e) => setDueDay(e.target.value)}
-                      placeholder="5"
-                      className="w-full border rounded-lg p-2 font-mono"
-                    />
-                  </div>
+                <div className="border-t pt-3">
+                  <label className="text-slate-700 font-bold block mb-1">วันที่ครบกำหนดชำระของทุกเดือน</label>
+                  <select
+                    value={dueDay}
+                    onChange={(e) => setDueDay(e.target.value)}
+                    className="w-full border rounded-lg p-2 font-bold bg-white"
+                  >
+                    {Array.from({ length: 28 }, (_, i) => String(i + 1)).map((d) => (
+                      <option key={d} value={d}>
+                        วันที่ {d} ของทุกเดือน
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <button
@@ -2726,7 +2837,7 @@ export default function AdminCondoApp() {
       </main>
 
       {/* ===================================================================== */}
-      {/* MODAL: CUSTOM LINE NOTIFICATION PUSH (FOR SELECTED ROOMS)             */}
+      {/* MODAL: CUSTOM LINE NOTIFICATION PUSH                                  */}
       {/* ===================================================================== */}
       {pushCustomModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3">
@@ -2802,120 +2913,270 @@ export default function AdminCondoApp() {
       )}
 
       {/* ===================================================================== */}
-      {/* MODAL: FULL-SCREEN METER PHOTO ZOOM & COMPARISON LIGHTBOX             */}
+      {/* MODAL: EXPANDABLE METER & BILL INSPECTOR WITH AUTO-NEXT ROOM!         */}
       {/* ===================================================================== */}
-      {lightboxRoom && (
-        <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-          onClick={() => setLightboxRoom(null)}
-        >
-          <div
-            className="bg-slate-900 border border-slate-700 text-white w-full max-w-3xl rounded-2xl overflow-hidden shadow-2xl flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-4 py-3 bg-slate-950 flex items-center justify-between border-b border-slate-800">
-              <div>
-                <h3 className="font-bold text-base text-sky-400">
-                  🔍 ตรวจสอบรูปหน้าปัดมิเตอร์ — ห้อง {formatRoomNo(lightboxRoom.room_no)}
-                </h3>
-                <p className="text-xs text-slate-400">
-                  เทียบตัวเลขบนหน้าปัดมิเตอร์ในรูป กับตัวเลขที่บันทึกด้านล่าง
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setLightboxRoom(null)}
-                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center"
+      {lightboxRoom &&
+        (() => {
+          const list = filteredRooms.length > 0 ? filteredRooms : rooms;
+          const currIdx = list.findIndex((r) => r.room_no === lightboxRoom.room_no);
+          const log = logMap[lightboxRoom.room_no];
+          const draft = inlineEdits[lightboxRoom.room_no];
+          const prevVal =
+            draft?.prev !== undefined
+              ? draft.prev
+              : String(log ? Number(log.prev_meter) : Number(lightboxRoom.latest_meter) || 0);
+          const currVal =
+            draft?.curr !== undefined
+              ? draft.curr
+              : log
+              ? String(log.curr_meter)
+              : '';
+          const prevNum = Number(prevVal) || 0;
+          const currNum = currVal === '' ? prevNum : Number(currVal);
+
+          const previewBill = calculateBill(
+            lightboxRoom,
+            currNum,
+            period,
+            config,
+            log ? Number(log.special_items) || 0 : 0,
+            log?.special_items_note || log?.note || '',
+            Number(lightboxRoom.outstanding_balance) || 0,
+            prevNum,
+            log ? Number(log.late_fee) || 0 : 0
+          );
+
+          return (
+            <div
+              className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-2 sm:p-5 overflow-y-auto"
+              onClick={() => setLightboxRoom(null)}
+            >
+              <div
+                className="bg-slate-900 border border-slate-700 text-white w-full max-w-5xl rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[95vh]"
+                onClick={(e) => e.stopPropagation()}
               >
-                ✕
-              </button>
-            </div>
-
-            <div className="bg-black flex items-center justify-center p-2 max-h-[65vh] overflow-hidden">
-              {logMap[lightboxRoom.room_no]?.meter_photo_url ? (
-                <img
-                  src={logMap[lightboxRoom.room_no].meter_photo_url!}
-                  alt="Meter Full"
-                  className="max-h-[62vh] w-auto object-contain rounded"
-                />
-              ) : (
-                <div className="py-16 text-slate-400 text-sm">ไม่มีรูปถ่ายสำหรับห้องนี้</div>
-              )}
-            </div>
-
-            {(() => {
-              const log = logMap[lightboxRoom.room_no];
-              const draft = inlineEdits[lightboxRoom.room_no];
-              const prevVal =
-                draft?.prev !== undefined
-                  ? draft.prev
-                  : String(log ? Number(log.prev_meter) : Number(lightboxRoom.latest_meter) || 0);
-              const currVal =
-                draft?.curr !== undefined
-                  ? draft.curr
-                  : log
-                  ? String(log.curr_meter)
-                  : '';
-              const prevNum = Number(prevVal) || 0;
-              const currNum = currVal === '' ? prevNum : Number(currVal);
-              const units = Math.max(0, currNum - prevNum);
-
-              return (
-                <div className="p-4 bg-slate-900 border-t border-slate-800 flex flex-wrap items-center justify-between gap-4 text-xs">
+                {/* Top Navigation Header inside Expanded Inspector */}
+                <div className="px-4 py-3 bg-slate-950 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800">
                   <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={currIdx <= 0}
+                      onClick={() => handleNavigateLightboxRoom(-1)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded-xl text-xs font-bold"
+                    >
+                      ◀ ห้องก่อนหน้า
+                    </button>
                     <div>
-                      <span className="text-slate-400 block text-[11px]">เลขครั้งก่อน</span>
-                      <input
-                        type="number"
-                        value={prevVal}
-                        onChange={(e) =>
-                          setInlineEdits((prev) => ({
-                            ...prev,
-                            [lightboxRoom.room_no]: { prev: e.target.value, curr: currVal },
-                          }))
-                        }
-                        className="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 font-mono font-bold text-base text-slate-200"
-                      />
+                      <h3 className="font-bold text-base sm:text-lg text-sky-400">
+                        🔍 ตรวจมิเตอร์ & บิล — ห้อง {formatRoomNo(lightboxRoom.room_no)}{' '}
+                        <span className="text-xs text-slate-400 font-normal">
+                          (ลำดับที่ {currIdx + 1} จาก {list.length})
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        {lightboxRoom.owner_name || 'เจ้าของห้อง'} • {lightboxRoom.room_type} • รอบบิล {period}
+                      </p>
                     </div>
-                    <span className="text-slate-500 text-lg mt-4">➔</span>
-                    <div>
-                      <span className="text-sky-400 font-bold block text-[11px]">เลขครั้งนี้ (แก้ได้)</span>
-                      <input
-                        type="number"
-                        value={currVal}
-                        onChange={(e) =>
-                          setInlineEdits((prev) => ({
-                            ...prev,
-                            [lightboxRoom.room_no]: { prev: prevVal, curr: e.target.value },
-                          }))
-                        }
-                        className="w-28 bg-white text-blue-700 border-2 border-sky-400 rounded-lg px-2.5 py-1.5 font-mono font-bold text-base"
-                      />
-                    </div>
-                    <div className="pl-2">
-                      <span className="text-slate-400 block text-[11px]">ใช้น้ำรอบนี้</span>
-                      <span className="text-lg font-bold text-emerald-400 font-mono">
-                        {units} หน่วย
-                      </span>
-                    </div>
+                    <button
+                      type="button"
+                      disabled={currIdx >= list.length - 1}
+                      onClick={() => handleNavigateLightboxRoom(1)}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 rounded-xl text-xs font-bold"
+                    >
+                      ข้ามไปห้องถัดไป ▶
+                    </button>
                   </div>
 
                   <button
                     type="button"
-                    onClick={async () => {
-                      await handleInlineMeterSave(lightboxRoom);
-                      setLightboxRoom(null);
-                    }}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow text-xs"
+                    onClick={() => setLightboxRoom(null)}
+                    className="w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center text-base"
                   >
-                    ✅ ยืนยันตัวเลขถูกต้อง & บันทึก
+                    ✕
                   </button>
                 </div>
-              );
-            })()}
-          </div>
-        </div>
-      )}
+
+                {/* Split View: Left Large Photo | Right Meter & Bill Inspector */}
+                <div className="grid grid-cols-1 md:grid-cols-12 flex-1 overflow-y-auto">
+                  {/* Left 7 Cols: High-Res Photo */}
+                  <div className="md:col-span-7 bg-black flex flex-col items-center justify-center p-3 border-b md:border-b-0 md:border-r border-slate-800 min-h-[280px]">
+                    {log?.meter_photo_url ? (
+                      <img
+                        src={log.meter_photo_url}
+                        alt="Meter Full"
+                        className="max-h-[64vh] w-auto object-contain rounded"
+                      />
+                    ) : (
+                      <div className="py-16 text-center space-y-3">
+                        <div className="text-4xl">📷</div>
+                        <div className="text-slate-400 text-sm">ยังไม่มีรูปถ่ายมิเตอร์สำหรับห้องนี้</div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const target = lightboxRoom;
+                            setLightboxRoom(null);
+                            setReadingModalRoom(target);
+                          }}
+                          className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-xs"
+                        >
+                          📸 กดเพื่อถ่าย/อัปโหลดรูปมิเตอร์
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right 5 Cols: Meter Inputs & Live Itemized Bill Preview */}
+                  <div className="md:col-span-5 p-4 flex flex-col justify-between space-y-4 text-xs bg-slate-900">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-sky-400">
+                          1. ตรวจสอบตัวเลขมิเตอร์น้ำ
+                        </span>
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                            log?.is_verified
+                              ? 'bg-emerald-900 text-emerald-300 border border-emerald-700'
+                              : 'bg-amber-900 text-amber-300'
+                          }`}
+                        >
+                          {log?.is_verified ? '✅ ตรวจยืนยันแล้ว' : '⏳ รอตรวจสอบ'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 bg-slate-800/80 p-3 rounded-xl border border-slate-700">
+                        <div>
+                          <label className="text-slate-400 block mb-1">เลขครั้งก่อน</label>
+                          <input
+                            type="number"
+                            value={prevVal}
+                            onChange={(e) =>
+                              setInlineEdits((prev) => ({
+                                ...prev,
+                                [lightboxRoom.room_no]: { prev: e.target.value, curr: currVal },
+                              }))
+                            }
+                            className="w-full bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 font-mono font-bold text-lg text-slate-200"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sky-400 font-bold block mb-1">เลขครั้งนี้ (แก้ได้)</label>
+                          <input
+                            type="number"
+                            value={currVal}
+                            placeholder={String(prevNum)}
+                            onChange={(e) =>
+                              setInlineEdits((prev) => ({
+                                ...prev,
+                                [lightboxRoom.room_no]: { prev: prevVal, curr: e.target.value },
+                              }))
+                            }
+                            className="w-full bg-white text-blue-700 border-2 border-sky-400 rounded-xl px-3 py-2 font-mono font-bold text-lg outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Itemized Bill Calculation (Separated Water 35 & Wastewater 5) */}
+                      <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700 space-y-2">
+                        <div className="flex justify-between items-center border-b border-slate-700 pb-1.5">
+                          <span className="font-bold text-slate-200">2. รายการคำนวณบิลห้องนี้</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBillEditRoom(lightboxRoom);
+                            }}
+                            className="text-amber-400 hover:underline font-bold text-[11px]"
+                          >
+                            ✏️ เพิ่มรายการ/ส่วนลด
+                          </button>
+                        </div>
+
+                        <div className="flex justify-between text-slate-300">
+                          <span>จำนวนหน่วยน้ำที่ใช้:</span>
+                          <span className="font-mono font-bold text-emerald-400 text-sm">
+                            {previewBill.units_used} หน่วย
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>1. ค่าน้ำประปา ({previewBill.units_used} × {previewBill.water_rate} บ.):</span>
+                          <span className="font-mono font-bold">{previewBill.water_amount.toFixed(2)} บ.</span>
+                        </div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>2. ค่าบำบัดน้ำเสีย ({previewBill.units_used} × {previewBill.wastewater_rate} บ.):</span>
+                          <span className="font-mono font-bold">{previewBill.wastewater_amount.toFixed(2)} บ.</span>
+                        </div>
+                        <div className="flex justify-between text-slate-300">
+                          <span>3. ค่าส่วนกลาง ({lightboxRoom.room_type}):</span>
+                          <span className="font-mono font-bold">{previewBill.common_fee.toFixed(2)} บ.</span>
+                        </div>
+                        {previewBill.special_items !== 0 && (
+                          <div className="flex justify-between text-amber-300">
+                            <span>4. รายการเพิ่ม/ส่วนลด:</span>
+                            <span className="font-mono font-bold">
+                              {previewBill.special_items > 0
+                                ? `+${previewBill.special_items.toFixed(2)}`
+                                : previewBill.special_items.toFixed(2)}{' '}
+                              บ.
+                            </span>
+                          </div>
+                        )}
+                        {previewBill.contribution_deducted > 0 && (
+                          <div className="flex justify-between text-emerald-400">
+                            <span>★ หักเครดิตสมทบทุนซ่อมตึก:</span>
+                            <span className="font-mono font-bold">-{previewBill.contribution_deducted.toFixed(2)} บ.</span>
+                          </div>
+                        )}
+                        {previewBill.prepaid_deducted > 0 && (
+                          <div className="flex justify-between text-emerald-400">
+                            <span>★ หักเงินฝากล่วงหน้า:</span>
+                            <span className="font-mono font-bold">-{previewBill.prepaid_deducted.toFixed(2)} บ.</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-700 text-sm font-bold">
+                          <span>ยอดเรียกเก็บสุทธิ:</span>
+                          <span className="text-lg font-mono text-sky-400">
+                            {previewBill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bottom Action Buttons: Save & Auto-Advance to Next Room! */}
+                    <div className="space-y-2 pt-2 border-t border-slate-800">
+                      <button
+                        type="button"
+                        disabled={savingRoomNo === lightboxRoom.room_no}
+                        onClick={() => handleInlineMeterSave(lightboxRoom, true)}
+                        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] text-white font-bold rounded-xl shadow-lg text-sm flex items-center justify-center gap-2 transition"
+                      >
+                        {savingRoomNo === lightboxRoom.room_no
+                          ? '⏳ กำลังบันทึก...'
+                          : '✅ บันทึกยืนยัน & ไปห้องถัดไปทันที ▶'}
+                      </button>
+
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={savingRoomNo === lightboxRoom.room_no}
+                          onClick={() => handleInlineMeterSave(lightboxRoom, false)}
+                          className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs"
+                        >
+                          💾 บันทึก (อยู่ห้องเดิม)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLightboxRoom(null)}
+                          className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold rounded-xl text-xs"
+                        >
+                          ปิดหน้าต่าง
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
       {/* MODAL: ADMIN METER READING & PHOTO UPLOAD */}
       {readingModalRoom && (
@@ -2936,7 +3197,7 @@ export default function AdminCondoApp() {
         />
       )}
 
-      {/* MODAL: PER-ROOM BILL EDITOR (CHARGES / DISCOUNTS / LATE FEE) */}
+      {/* MODAL: PER-ROOM BILL EDITOR (MULTI-ITEM ADD/REMOVE LIST) */}
       {billEditRoom && (
         <BillEditModal
           room={billEditRoom}

@@ -1,7 +1,7 @@
 'use client';
 
-// Printable 4-Bills-Per-A4 Component (Supports Both Invoices and Receipts, Single/Selected Rooms, and Zero Floor System)
-// Version 1.4
+// Printable 4-Bills-Per-A4 Component
+// Version 1.5 - Renders Multiple Custom Line Items Separately & Explicit Water (35 THB) / Wastewater (5 THB)
 
 import React, { useState, useMemo } from 'react';
 import { BillCalculationResult, CondoConfig, Room, MeterLog } from '@/types/condo';
@@ -12,10 +12,43 @@ interface PrintBillsProps {
   rooms?: Room[];
   logMap?: Record<string, MeterLog>;
   config: Partial<CondoConfig>;
-  qrMap: Record<string, string>; // room_no -> qrDataUrl
+  qrMap: Record<string, string>;
   docType?: 'invoice' | 'receipt';
   preselectedRoomNos?: string[];
   onClose?: () => void;
+}
+
+// Helper to parse serialized custom line items for clean row-by-row printing on the bill
+function getPrintableCustomItems(noteStr?: string, totalSpecial = 0): { label: string; amount: number }[] {
+  const clean = (noteStr || '').trim();
+  if (!clean && totalSpecial === 0) return [];
+
+  if (clean.includes('|') || /\([+-]?\d+(\.\d+)?\s*บ\.\)/.test(clean)) {
+    const parts = clean.split('|').map((p) => p.trim()).filter(Boolean);
+    const items: { label: string; amount: number }[] = [];
+    parts.forEach((part) => {
+      const match = part.match(/^(.*?)\s*\(([+-]?\d+(?:\.\d+)?)\s*บ\.\)$/);
+      if (match) {
+        items.push({
+          label: match[1].trim() || 'รายการเพิ่มเติม',
+          amount: parseFloat(match[2]) || 0,
+        });
+      } else {
+        items.push({
+          label: part,
+          amount: parts.length === 1 ? totalSpecial : 0,
+        });
+      }
+    });
+    if (items.length > 0) return items;
+  }
+
+  return [
+    {
+      label: clean || (totalSpecial < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'),
+      amount: totalSpecial,
+    },
+  ];
 }
 
 export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
@@ -87,7 +120,6 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
 
         {/* Print Filter Controls */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Document Type Switcher */}
           <select
             value={docType}
             onChange={(e) => setDocType(e.target.value as 'invoice' | 'receipt')}
@@ -203,7 +235,6 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
           }
         `}} />
 
-        {/* Chunk bills into groups of 4 for each A4 sheet */}
         {Array.from({ length: Math.max(1, Math.ceil(filteredBills.length / 4)) }).map((_, pageIdx) => {
           const pageBills = filteredBills.slice(pageIdx * 4, pageIdx * 4 + 4);
 
@@ -218,6 +249,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                 const bankAccName = config.BANK_ACCOUNT_NAME || 'นิติบุคคลอาคารชุด สมบูรณ์คอนโดทาวน์';
                 const isReceipt = docType === 'receipt';
                 const docNo = isReceipt ? generateReceiptNo(bill.invoice_no, 1) : bill.invoice_no;
+                const customLineItems = getPrintableCustomItems(bill.special_items_note, bill.special_items);
 
                 return (
                   <div
@@ -241,7 +273,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       </div>
 
                       {/* Period & Due Date */}
-                      <div className="flex justify-between bg-slate-50 px-2 py-1 rounded mb-2 text-[11px]">
+                      <div className="flex justify-between bg-slate-50 px-2 py-1 rounded mb-1.5 text-[11px]">
                         <div>
                           <span className="text-slate-500">รอบบิล/Period: </span>
                           <span className="font-semibold">{bill.period}</span>
@@ -266,7 +298,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       </div>
 
                       {/* Meter Info Box */}
-                      <div className="border border-slate-200 rounded p-1.5 mb-2 bg-blue-50/40 text-[11px]">
+                      <div className="border border-slate-200 rounded p-1.5 mb-1.5 bg-blue-50/40 text-[11px]">
                         <div className="flex justify-between">
                           <span>เลขมิเตอร์น้ำ/Meter: <b>{bill.curr_meter}</b></span>
                           <span className="text-slate-500">(ครั้งก่อน: {bill.prev_meter})</span>
@@ -275,31 +307,35 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       </div>
 
                       {/* Calculation Breakdown Table */}
-                      <table className="w-full text-[11px] mb-2">
+                      <table className="w-full text-[11px] mb-1.5">
                         <tbody>
                           <tr className="border-b border-slate-100">
-                            <td className="py-0.5">1. ค่าน้ำประปา / Water ({bill.units_used} × {bill.water_rate})</td>
+                            <td className="py-0.5">1. ค่าน้ำประปา / Water ({bill.units_used} หน่วย × {bill.water_rate} บ.)</td>
                             <td className="text-right font-medium">{bill.water_amount.toFixed(2)}</td>
                           </tr>
                           <tr className="border-b border-slate-100">
-                            <td className="py-0.5">2. ค่าบำบัดน้ำเสีย / Wastewater ({bill.units_used} × {bill.wastewater_rate})</td>
+                            <td className="py-0.5">2. ค่าบำบัดน้ำเสีย / Wastewater ({bill.units_used} หน่วย × {bill.wastewater_rate} บ.)</td>
                             <td className="text-right font-medium">{bill.wastewater_amount.toFixed(2)}</td>
                           </tr>
                           <tr className="border-b border-slate-100">
                             <td className="py-0.5">3. ค่าส่วนกลาง / Common Fee</td>
                             <td className="text-right font-medium">{bill.common_fee.toFixed(2)}</td>
                           </tr>
-                          {bill.special_items !== 0 && (
-                            <tr className={`border-b border-slate-100 ${bill.special_items < 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          {customLineItems.map((cItem, cIdx) => (
+                            <tr
+                              key={cIdx}
+                              className={`border-b border-slate-100 ${
+                                cItem.amount < 0 ? 'text-emerald-700' : 'text-amber-700'
+                              }`}
+                            >
                               <td className="py-0.5">
-                                4. {bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'}:{' '}
-                                {bill.special_items_note || (bill.special_items < 0 ? 'ส่วนลด' : 'ค่าใช้จ่ายอื่น')}
+                                {cIdx + 4}. {cItem.label}
                               </td>
                               <td className="text-right font-semibold">
-                                {bill.special_items > 0 ? `+${bill.special_items.toFixed(2)}` : bill.special_items.toFixed(2)}
+                                {cItem.amount > 0 ? `+${cItem.amount.toFixed(2)}` : cItem.amount.toFixed(2)}
                               </td>
                             </tr>
-                          )}
+                          ))}
                           {(bill.late_fee || 0) > 0 && (
                             <tr className="border-b border-slate-100 text-red-600">
                               <td className="py-0.5">เบี้ยปรับชำระล่าช้า / Late Fee</td>
@@ -330,7 +366,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
 
                     {/* Total & Payment Section */}
                     <div>
-                      <div className={`${isReceipt ? 'bg-emerald-900' : 'bg-slate-900'} text-white p-2 rounded flex justify-between items-center mb-2`}>
+                      <div className={`${isReceipt ? 'bg-emerald-900' : 'bg-slate-900'} text-white p-2 rounded flex justify-between items-center mb-1.5`}>
                         <div>
                           <div className="text-[10px] text-slate-200">
                             {isReceipt ? 'ยอดรับชำระสุทธิ' : 'ยอดรวมที่ต้องชำระ'}

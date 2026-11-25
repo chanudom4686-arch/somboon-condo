@@ -1,5 +1,5 @@
-// LINE OA Webhook Handler with Customizable Auto-Reply Rules & 4 PDPA Data Categories
-// Version 1.4
+// LINE OA Webhook Handler with Customizable Auto-Reply Rules & Separated Water/Wastewater
+// Version 1.5
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -43,7 +43,6 @@ export async function POST(req: NextRequest) {
     const cookieStore = await cookies();
     const supabase = createClient(cookieStore);
 
-    // 1. Load Config from condo_config
     const { data: configRows } = await supabase.from('condo_config').select('key, value');
     const config: Record<string, string> = {};
     if (configRows) {
@@ -69,7 +68,6 @@ export async function POST(req: NextRequest) {
     const payload = JSON.parse(rawBody);
     const events = payload.events || [];
 
-    // Load active auto-reply rules configured in Web UI
     const { data: rulesData } = await supabase
       .from('line_auto_replies')
       .select('*')
@@ -87,7 +85,7 @@ export async function POST(req: NextRequest) {
 
         if (!replyToken || !lineUserId) continue;
 
-        // A. Handle Resident Self-Unlink Command ("ยกเลิกผูกห้อง" / "ยกเลิกลงทะเบียน")
+        // A. Handle Resident Self-Unlink
         if (text === 'ยกเลิกผูกห้อง' || text === 'ยกเลิกลงทะเบียน' || lowerText === 'unlink') {
           const { data: linkedRooms } = await supabase
             .from('rooms')
@@ -105,7 +103,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `🔓 ยกเลิกการผูกบัญชี LINE กับห้อง ${linkedRooms.map((r) => formatRoomNo(r.room_no)).join(', ')} เรียบร้อยแล้วครับ\n\nหากต้องการผูกห้องใหม่ สามารถพิมพ์รหัส 6 หลัก (เลขห้อง 3 หลัก + เบอร์โทร 3 ตัวท้าย) ได้ตลอดเวลาครับ`,
+                  text: `🔓 ยกเลิกการผูกบัญชี LINE กับห้อง ${linkedRooms.map((r) => formatRoomNo(r.room_no)).join(', ')} เรียบร้อยแล้วครับ`,
                 },
               ],
               accessToken
@@ -187,7 +185,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // C. Match against Customizable Auto-Reply Rules from `line_auto_replies`
+        // C. Match against Customizable Auto-Reply Rules
         const matchedRule = rules.find((rule: any) => {
           const keywords = (rule.keyword || '')
             .split(',')
@@ -199,7 +197,6 @@ export async function POST(req: NextRequest) {
           return keywords.some((k: string) => lowerText.includes(k));
         });
 
-        // Find linked room for this user (for PDPA private data categories)
         const { data: linkedRooms } = await supabase
           .from('rooms')
           .select('*')
@@ -212,7 +209,6 @@ export async function POST(req: NextRequest) {
         if (matchedRule) {
           const mode = matchedRule.reply_mode || 'custom_text';
 
-          // PDPA Check: Personal room modes require linkedRoom
           if (['system_bill', 'system_receipt', 'system_statement'].includes(mode) && !linkedRoom) {
             await replyLineMessage(
               replyToken,
@@ -227,12 +223,13 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          // Prepare dynamic variable replacements
           let roomNoFormatted = linkedRoom ? formatRoomNo(linkedRoom.room_no) : 'ยังไม่ผูกห้อง';
           let ownerName = linkedRoom ? (linkedRoom.owner_name || linkedRoom.tenant_name || 'เจ้าของห้อง') : '-';
           let prevMeter = linkedRoom ? Number(linkedRoom.latest_meter) || 0 : 0;
           let currMeter = prevMeter;
           let waterUnits = 0;
+          let waterOnlyAmt = '0.00';
+          let wastewaterOnlyAmt = '0.00';
           let waterTotal = '0.00';
           let commonFee = '0.00';
           let extraItems = '';
@@ -264,11 +261,17 @@ export async function POST(req: NextRequest) {
             prevMeter = bill.prev_meter;
             currMeter = bill.curr_meter;
             waterUnits = bill.units_used;
-            waterTotal = (bill.water_amount + bill.wastewater_amount).toLocaleString('th-TH', { minimumFractionDigits: 2 });
+            waterOnlyAmt = bill.water_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+            wastewaterOnlyAmt = bill.wastewater_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+            waterTotal = `${waterOnlyAmt} บาท (35 บ./หน่วย)\n• ค่าบำบัดน้ำเสีย: ${wastewaterOnlyAmt}`;
             commonFee = bill.common_fee.toLocaleString('th-TH', { minimumFractionDigits: 2 });
 
             const extraLines: string[] = [];
-            if (bill.special_items !== 0) {
+            if (bill.special_items_note && bill.special_items_note.includes('|')) {
+              bill.special_items_note.split('|').forEach((part) => {
+                if (part.trim()) extraLines.push(`• ${part.trim()}`);
+              });
+            } else if (bill.special_items !== 0) {
               extraLines.push(
                 `• ${bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'} (${bill.special_items_note || '-'}): ${bill.special_items > 0 ? '+' : ''}${bill.special_items.toLocaleString()} บาท`
               );
@@ -292,7 +295,6 @@ export async function POST(req: NextRequest) {
               : `⏳ รอชำระ (ครบกำหนดวันที่ ${dueDay})`;
           }
 
-          // Statement 12 months
           let statement12mText = 'ยังไม่มีประวัติการชำระเงิน';
           if (linkedRoom && (mode === 'system_statement' || matchedRule.reply_text.includes('{statement_12m}'))) {
             const { data: historyLogs } = await supabase
@@ -316,7 +318,6 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Fund summary (PDPA Public Building-wide)
           let fundSummaryText = '';
           if (mode === 'system_fund' || matchedRule.reply_text.includes('{fund_summary}')) {
             const { data: fundTxs } = await supabase
@@ -340,7 +341,6 @@ export async function POST(req: NextRequest) {
             fundSummaryText = `• ยอดเงินระดมทุนสะสมทั้งหมด: ${totalFundIn.toLocaleString()} บาท\n• นำไปใช้ปรับปรุง/ซ่อมบำรุงแล้ว: ${totalFundOut.toLocaleString()} บาท\n• ยอดคงเหลือปัจจุบัน: ${(totalFundIn - totalFundOut).toLocaleString()} บาท\n\nรายการนำไปใช้ล่าสุด:\n${expenseItems || '  - ยังไม่มีรายการเบิกจ่าย'}`;
           }
 
-          // Building Finance Summary (PDPA Public Building-wide)
           let buildingFinanceText = '';
           if (mode === 'system_finance' || matchedRule.reply_text.includes('{building_finance}')) {
             const { data: allTxs } = await supabase
@@ -360,8 +360,8 @@ export async function POST(req: NextRequest) {
             buildingFinanceText = `• รายรับรวมของอาคาร: +${totalIn.toLocaleString()} บาท\n• รายจ่ายรวมของอาคาร: -${totalOut.toLocaleString()} บาท\n• สถานะดุลการเงินปัจจุบัน: ${netBal >= 0 ? `✅ คงเหลือสุทธิ +${netBal.toLocaleString()} บาท` : `⚠️ ติดลบ ${netBal.toLocaleString()} บาท`}`;
           }
 
-          // Replace placeholders in reply_text
           const finalReply = (matchedRule.reply_text || '')
+            .replace(/ค่าน้ำ\+บำบัด:/g, 'ค่าน้ำประปา:')
             .replace(/\{condo_name\}/g, condoName)
             .replace(/\{room_no\}/g, roomNoFormatted)
             .replace(/\{owner_name\}/g, ownerName)
@@ -369,6 +369,8 @@ export async function POST(req: NextRequest) {
             .replace(/\{prev_meter\}/g, String(prevMeter))
             .replace(/\{curr_meter\}/g, String(currMeter))
             .replace(/\{water_units\}/g, String(waterUnits))
+            .replace(/\{water_amount\}/g, waterOnlyAmt)
+            .replace(/\{wastewater_amount\}/g, wastewaterOnlyAmt)
             .replace(/\{water_total\}/g, waterTotal)
             .replace(/\{common_fee\}/g, commonFee)
             .replace(/\{extra_items\}/g, extraItems)
@@ -388,7 +390,6 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // D. Fallback / Default Greeting (Customizable via LINE_GREETING_MESSAGE in condo_config)
         const defaultGreeting = (
           config.LINE_GREETING_MESSAGE ||
           `สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name}\n\n📌 หากยังไม่ได้ผูกห้องชุด:\nโปรดพิมพ์ เลขห้อง 3 หลัก ตามด้วยเบอร์โทร 3 ตัวท้าย (เช่น 005273)\n\n📌 หากผูกห้องแล้ว พิมพ์คำว่า "เมนู" หรือ "ดูบิล" ได้เลยครับ`

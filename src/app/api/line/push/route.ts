@@ -1,5 +1,5 @@
 // LINE OA Push Notification API for Single Room or Selected Batch of Rooms
-// Version 1.4 - Supports pushing monthly invoice bills or custom follow-up notifications
+// Version 1.5 - Explicitly separates Water (35 THB/unit) and Wastewater (5 THB/unit) + Itemized Custom Items
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -18,7 +18,6 @@ export async function POST(req: NextRequest) {
     const cookieStore = await cookies();
     const supabase = createClient(cookieStore);
 
-    // 1. Load Config
     const { data: configRows } = await supabase.from('condo_config').select('key, value');
     const config: Record<string, string> = {};
     if (configRows) {
@@ -34,9 +33,7 @@ export async function POST(req: NextRequest) {
 
     const activePeriod = period || config.CURRENT_BILLING_PERIOD || '2026-11';
     const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)';
-    const dueDay = config.BILL_DUE_DAY || '5';
 
-    // 2. Fetch target rooms and their meter logs
     const { data: roomsData } = await supabase
       .from('rooms')
       .select('*')
@@ -91,7 +88,11 @@ export async function POST(req: NextRequest) {
           .replace(/\{due_date\}/g, bill.due_date);
       } else {
         const extraLines: string[] = [];
-        if (bill.special_items !== 0) {
+        if (bill.special_items_note && bill.special_items_note.includes('|')) {
+          bill.special_items_note.split('|').forEach((part) => {
+            if (part.trim()) extraLines.push(`• ${part.trim()}`);
+          });
+        } else if (bill.special_items !== 0) {
           extraLines.push(
             `• ${bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'} (${bill.special_items_note || '-'}): ${
               bill.special_items > 0 ? '+' : ''
@@ -117,8 +118,9 @@ export async function POST(req: NextRequest) {
           `ห้อง: ${formatRoomNo(room.room_no)}\n` +
           `━━━━━━━━━━━━━━\n` +
           `• มิเตอร์น้ำ: ${bill.prev_meter} ➔ ${bill.curr_meter} (ใช้ ${bill.units_used} หน่วย)\n` +
-          `• ค่าน้ำประปา+บำบัด: ${(bill.water_amount + bill.wastewater_amount).toLocaleString()} บ.\n` +
-          `• ค่าส่วนกลาง: ${bill.common_fee.toLocaleString()} บ.\n` +
+          `1. ค่าน้ำประปา (${bill.units_used} × ${bill.water_rate} บ.): ${bill.water_amount.toLocaleString()} บ.\n` +
+          `2. ค่าบำบัดน้ำเสีย (${bill.units_used} × ${bill.wastewater_rate} บ.): ${bill.wastewater_amount.toLocaleString()} บ.\n` +
+          `3. ค่าส่วนกลาง: ${bill.common_fee.toLocaleString()} บ.\n` +
           (extraLines.length > 0 ? extraLines.join('\n') + '\n' : '') +
           `━━━━━━━━━━━━━━\n` +
           `💰 ยอดรวมที่ต้องชำระ: ${bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท\n` +

@@ -1,7 +1,7 @@
 'use client';
 
 // Payment Recording Modal & Receipt Generator
-// Version 1.0
+// Version 1.5 - Explicitly separates Water (35 THB/unit) and Wastewater (5 THB/unit)
 
 import React, { useState } from 'react';
 import { Room, MeterLog, CondoConfig } from '@/types/condo';
@@ -60,7 +60,6 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     try {
       let slipUrl: string | null = null;
 
-      // 1. Upload slip if provided
       if (slipFile) {
         const fileName = `${period}/${room.room_no}_slip_${Date.now()}.jpg`;
         const { data: uploadData, error: uploadErr } = await supabase.storage
@@ -73,7 +72,6 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         }
       }
 
-      // 2. Update meter_logs as paid
       if (meterLog) {
         await supabase
           .from('meter_logs')
@@ -82,11 +80,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             paid_type: paymentMethod,
             paid_timestamp: new Date().toISOString(),
             slip_url: slipUrl || meterLog.slip_url,
+            followup_status: 'none',
           })
           .eq('id', meterLog.id);
       }
 
-      // 3. If overpaid, add excess to prepaid_credit
       if (isOverpaid && overpaidAmount > 0) {
         const newPrepaid = (Number(room.prepaid_credit) || 0) + overpaidAmount;
         await supabase
@@ -109,7 +107,6 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         });
       }
 
-      // 4. Record accounting transaction
       const invoiceNo = `${formatRoomNo(room.room_no)}-${period}`;
       const receiptNo = generateReceiptNo(invoiceNo, 1);
 
@@ -157,7 +154,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </div>
           )}
 
-          {/* Due Summary */}
+          {/* Due Summary with Separated Water (35) & Wastewater (5) */}
           <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex justify-between items-center">
             <div>
               <span className="text-slate-500 block text-[11px]">ยอดที่ต้องชำระตามบิล:</span>
@@ -166,9 +163,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               </span>
             </div>
             {meterLog && (
-              <div className="text-right text-[11px] text-slate-500">
-                <div>ค่าน้ำ+บำบัด: {(Number(meterLog.water_amount) + Number(meterLog.wastewater_amount)).toLocaleString()} บ.</div>
-                <div>ค่าส่วนกลาง: {Number(meterLog.common_fee_amount).toLocaleString()} บ.</div>
+              <div className="text-right text-[11px] text-slate-600 space-y-0.5">
+                <div>1. ค่าน้ำประปา (35 บ./น.): <b>{Number(meterLog.water_amount).toLocaleString()} บ.</b></div>
+                <div>2. ค่าบำบัดน้ำเสีย (5 บ./น.): <b>{Number(meterLog.wastewater_amount).toLocaleString()} บ.</b></div>
+                <div>3. ค่าส่วนกลาง: <b>{Number(meterLog.common_fee_amount).toLocaleString()} บ.</b></div>
               </div>
             )}
           </div>
@@ -217,7 +215,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
           {/* Slip Attachment */}
           <div>
-            <label className="text-slate-700 font-bold block mb-1">แนบรูปสลิป / หลักฐานการโอน (ถ้ามี)</label>
+            <label className="text-slate-700 font-bold block mb-1">แนบรูปสลิป / หลักฐานการโอน (เก็บใน Supabase Storage)</label>
             {slipPreview ? (
               <div className="relative aspect-video rounded-lg overflow-hidden border bg-slate-100 flex items-center justify-center">
                 <img src={slipPreview} alt="Slip" className="w-full h-full object-contain" />
