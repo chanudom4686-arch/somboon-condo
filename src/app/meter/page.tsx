@@ -122,7 +122,7 @@ export default function StaffMeterReadingPage() {
             <span className="text-2xl">📱</span>
             <div>
               <h1 className="font-bold text-base leading-tight text-white">{condoName}</h1>
-              <p className="text-xs text-sky-400 font-medium">แอปจดมิเตอร์น้ำ (พนักงาน) • v1.4</p>
+              <p className="text-xs text-sky-400 font-medium">แอปจดมิเตอร์น้ำ (พนักงาน) • v1.7</p>
             </div>
           </div>
           <div className="text-right">

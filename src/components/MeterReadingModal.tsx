@@ -1,7 +1,7 @@
 'use client';
 
 // Mobile-optimized Meter Reading Modal with Top-Header Watermark & Uncovered Photo Preview
-// Version 1.6 - Uploads .jpg for 100% LINE Image Bubble compatibility
+// Version 1.7 - Removed room_type badge, gallery file picker, and quick-add buttons to enforce authentic camera capture & manual reading entry
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Room, MeterLog, CondoConfig } from '@/types/condo';
@@ -207,7 +207,7 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
 
   const handleSave = async (autoNext = false) => {
     if (currMeterStr.trim() === '') {
-      setErrorMessage('⚠️ กรุณากรอก "เลขมิเตอร์ครั้งนี้" ก่อนกดบันทึก (หากไม่ใช้น้ำเลย ให้กดปุ่ม "เท่าเดิม")');
+      setErrorMessage('⚠️ กรุณากรอก "เลขมิเตอร์ครั้งนี้" ก่อนกดบันทึก');
       return;
     }
 
@@ -334,9 +334,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xl font-bold text-sky-400">ห้อง {formatRoomNo(room.room_no)}</span>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">
-                {room.room_type}
-              </span>
             </div>
             <div className="text-xs text-slate-400">
               {existingLog ? '✏️ แก้ไขข้อมูลมิเตอร์รอบบิล: ' : 'จดมิเตอร์รอบบิล: '}
@@ -383,22 +380,13 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
                     className="w-full h-auto max-h-72 object-contain rounded"
                   />
                 </div>
-                <div className="p-2.5 bg-slate-900 border-t border-slate-800 flex justify-center gap-2">
-                  <label className="flex-1 py-2 px-3 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow cursor-pointer flex items-center justify-center gap-1.5">
+                <div className="p-2.5 bg-slate-900 border-t border-slate-800 flex justify-center">
+                  <label className="w-full py-2.5 px-3 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow cursor-pointer flex items-center justify-center gap-1.5">
                     <span>📸 ถ่ายรูปใหม่ (กล้องมือถือ)</span>
                     <input
                       type="file"
                       accept="image/*"
                       capture="environment"
-                      className="hidden"
-                      onChange={handleFileUpload}
-                    />
-                  </label>
-                  <label className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-xl shadow cursor-pointer flex items-center justify-center">
-                    🖼️ เลือกจากอัลบั้ม
-                    <input
-                      type="file"
-                      accept="image/*"
                       className="hidden"
                       onChange={handleFileUpload}
                     />
@@ -455,20 +443,11 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
                   />
                 </label>
 
-                <div className="flex gap-2 justify-center pt-1">
-                  <label className="flex-1 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl cursor-pointer flex items-center justify-center gap-1.5">
-                    <span>🖼️ เลือกรูปในเครื่อง</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleFileUpload}
-                    />
-                  </label>
+                <div className="flex justify-center pt-1">
                   <button
                     type="button"
                     onClick={startCamera}
-                    className="flex-1 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl flex items-center justify-center gap-1.5"
+                    className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-xl flex items-center justify-center gap-1.5"
                   >
                     <span>🎥 กล้องสดบนเว็บ</span>
                   </button>
@@ -523,31 +502,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
                   placeholder={`เช่น ${prevMeter + 5}`}
                   className="w-full text-xl font-bold text-blue-700 font-mono bg-white px-3 py-2.5 rounded-xl border-2 border-blue-500 focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
                 />
-              </div>
-            </div>
-
-            <div>
-              <span className="text-[10px] text-slate-500 block mb-1">ปุ่มลัดกดเร็ว (บวกเพิ่มจากเลขครั้งก่อน {prevMeter}):</span>
-              <div className="grid grid-cols-5 gap-1.5">
-                {[
-                  { label: 'เท่าเดิม (0)', add: 0 },
-                  { label: '+1', add: 1 },
-                  { label: '+3', add: 3 },
-                  { label: '+5', add: 5 },
-                  { label: '+10', add: 10 },
-                ].map((btn) => (
-                  <button
-                    key={btn.add}
-                    type="button"
-                    onClick={() => {
-                      const base = currMeterStr !== '' && btn.add > 0 ? Number(currMeterStr) : prevMeter;
-                      setCurrMeterStr(String(btn.add === 0 ? prevMeter : base + btn.add));
-                    }}
-                    className="py-1.5 px-1 bg-white hover:bg-blue-50 active:scale-95 border border-slate-300 rounded-lg text-[11px] font-bold text-slate-700 shadow-xs"
-                  >
-                    {btn.label}
-                  </button>
-                ))}
               </div>
             </div>
 
