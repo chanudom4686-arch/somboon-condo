@@ -1,11 +1,13 @@
 // Supabase Auto Keep-Alive Endpoint (called daily by Vercel Cron)
 // Version 2.4 - Prevents Supabase Free Plan from pausing after 7 days of inactivity
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, connection } from 'next/server';
 import { cookies } from 'next/headers';
 import { createClient } from '@/utils/supabase/server';
 
 export async function GET(req: NextRequest) {
+  // Force dynamic execution at request time (never prerender at build time)
+  await connection();
   // Optional protection: if CRON_SECRET is set in Vercel env, only Vercel Cron can call this endpoint
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
