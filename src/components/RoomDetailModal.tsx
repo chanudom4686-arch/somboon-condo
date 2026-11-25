@@ -354,7 +354,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-slate-500 block mb-0.5">เบอร์โทรศัพท์ (ใช้ผูก LINE 3 ตัวท้าย)</label>
+                  <label className="text-slate-500 block mb-0.5">เบอร์โทรศัพท์ (ใช้ผูก LINE 4 ตัวท้าย)</label>
                   <input
                     type="tel"
                     value={ownerPhone}

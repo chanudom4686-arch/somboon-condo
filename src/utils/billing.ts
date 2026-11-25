@@ -1,5 +1,5 @@
 // Billing calculation and formatting utilities
-// Version 1.8 - Supports paired rooms (645/64-65, 645/144-145, 645/164-165, 645/186-187), combined common fees (600 / 1000 / 800 THB), and automatic overdue detection after the 5th
+// Version 2.0 - 7-Digit LINE Registration Code (3-digit room + last 4 digits of phone), paired rooms, and automatic overdue detection
 
 import { Room, CondoConfig, BillCalculationResult } from '../types/condo';
 
@@ -150,11 +150,11 @@ export function calculateBill(
   const month = parseInt(monthStr, 10) || 11;
   const dueDate = `${String(dueDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
 
-  // LINE verification code: 3 digits room prefix + last 3 digits of phone (e.g. 064273)
+  // LINE verification code: 3 digits room prefix + last 4 digits of phone (e.g. 0646273)
   const rawPhone = (room.owner_phone || room.tenant_phone || '').replace(/[^0-9]/g, '');
-  const phoneSuffix = rawPhone.length >= 3 ? rawPhone.slice(-3) : '';
+  const phoneSuffix = rawPhone.length >= 4 ? rawPhone.slice(-4) : '';
   const linePrefix = getLineRoomPrefix(room.room_no);
-  const lineRegCode = phoneSuffix ? `${linePrefix}${phoneSuffix}` : `${linePrefix}XXX`;
+  const lineRegCode = phoneSuffix ? `${linePrefix}${phoneSuffix}` : `${linePrefix}XXXX`;
 
   return {
     room_no: room.room_no,

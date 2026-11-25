@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 1.9 - B&W A4 Print Isolation & Overdue Highlight, Fixed transactions_type_check, Simplified Water Bill Cost Input
+// Version 2.0 - 7-Digit LINE Registration Code (3-digit room + 4-digit phone suffix) & Tax ID Label Update
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -161,7 +161,7 @@ export default function AdminCondoApp() {
         setLineAccessToken(configMap.LINE_CHANNEL_ACCESS_TOKEN || '');
         setLineGreetingMsg(
           configMap.LINE_GREETING_MESSAGE ||
-            'สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name}\n\n📌 หากยังไม่ได้ผูกห้องชุด:\nโปรดพิมพ์ เลขห้อง 3 หลัก ตามด้วยเบอร์โทร 3 ตัวท้าย (เช่น 005273)\n\n📌 หากผูกห้องแล้ว พิมพ์คำว่า "เมนู" หรือ "ดูบิล" ได้เลยครับ'
+            'สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name}\n\n📌 หากยังไม่ได้ผูกห้องชุด:\nโปรดพิมพ์ เลขห้อง 3 หลัก ตามด้วยเบอร์โทร 4 ตัวท้าย (เช่น 0056273)\n\n📌 หากผูกห้องแล้ว พิมพ์คำว่า "เมนู" หรือ "ดูบิล" ได้เลยครับ'
         );
       }
 
@@ -780,14 +780,14 @@ export default function AdminCondoApp() {
 
   const handleTestLineCode = () => {
     const clean = testLineCode.replace(/[^0-9]/g, '');
-    if (clean.length !== 6) {
-      setTestLineResult({ match: false, message: 'โปรดระบุตัวเลข 6 หลัก (เลขห้อง 3 หลัก + เบอร์โทร 3 ตัวท้าย)' });
+    if (clean.length !== 7) {
+      setTestLineResult({ match: false, message: 'โปรดระบุตัวเลข 7 หลัก (เลขห้อง 3 หลัก + เบอร์โทร 4 ตัวท้าย)' });
       return;
     }
 
     const rawPrefix = clean.substring(0, 3);
     const roomPrefix = resolveRoomNo(rawPrefix);
-    const phoneSuffix = clean.substring(3, 6);
+    const phoneSuffix = clean.substring(3, 7);
 
     const room = rooms.find((r) => r.room_no === roomPrefix);
     if (!room) {
@@ -798,8 +798,8 @@ export default function AdminCondoApp() {
     const ownerClean = (room.owner_phone || '').replace(/[^0-9]/g, '');
     const tenantClean = (room.tenant_phone || '').replace(/[^0-9]/g, '');
 
-    const matchOwner = ownerClean.endsWith(phoneSuffix);
-    const matchTenant = tenantClean.endsWith(phoneSuffix);
+    const matchOwner = ownerClean.length >= 4 && ownerClean.endsWith(phoneSuffix);
+    const matchTenant = tenantClean.length >= 4 && tenantClean.endsWith(phoneSuffix);
 
     if (matchOwner || matchTenant) {
       setTestLineResult({
@@ -809,7 +809,7 @@ export default function AdminCondoApp() {
     } else {
       setTestLineResult({
         match: false,
-        message: `❌ เลขห้อง ${formatRoomNo(roomPrefix)} พบในระบบ แต่เบอร์โทรลงท้าย (${phoneSuffix}) ไม่ตรงกับที่แจ้งไว้ (เบอร์เจ้าของ: ${room.owner_phone || '-'})`,
+        message: `❌ เลขห้อง ${formatRoomNo(roomPrefix)} พบในระบบ แต่เบอร์โทร 4 ตัวท้าย (${phoneSuffix}) ไม่ตรงกับที่แจ้งไว้ (เบอร์เจ้าของ: ${room.owner_phone || '-'})`,
       });
     }
   };
@@ -936,7 +936,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v1.9
+                  ระบบบริหารนิติบุคคล v2.0
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -2564,10 +2564,10 @@ export default function AdminCondoApp() {
                     <div className="flex gap-1.5">
                       <input
                         type="text"
-                        maxLength={6}
+                        maxLength={7}
                         value={testLineCode}
                         onChange={(e) => setTestLineCode(e.target.value)}
-                        placeholder="ทดสอบรหัส 6 หลัก เช่น 064273"
+                        placeholder="ทดสอบรหัส 7 หลัก เช่น 0646273"
                         className="border rounded-xl px-3 py-1.5 font-mono font-bold w-48"
                       />
                       <button
@@ -2599,7 +2599,7 @@ export default function AdminCondoApp() {
                           <th className="py-2.5 px-3 text-left">เลขห้อง</th>
                           <th className="py-2.5 px-3 text-left">ชื่อผู้ติดต่อ (เจ้าของ/ผู้เช่า)</th>
                           <th className="py-2.5 px-3 text-left">เบอร์โทรศัพท์</th>
-                          <th className="py-2.5 px-3 text-center">รหัสลงทะเบียน 6 หลัก</th>
+                          <th className="py-2.5 px-3 text-center">รหัสลงทะเบียน 7 หลัก</th>
                           <th className="py-2.5 px-3 text-center">สถานะ LINE</th>
                           <th className="py-2.5 px-3 text-center">จัดการผู้รับข้อมูล</th>
                         </tr>
@@ -2607,7 +2607,7 @@ export default function AdminCondoApp() {
                       <tbody className="divide-y text-slate-800">
                         {rooms.map((room) => {
                           const rawPhone = (room.owner_phone || room.tenant_phone || '').replace(/[^0-9]/g, '');
-                          const phoneSuffix = rawPhone.length >= 3 ? rawPhone.slice(-3) : '';
+                          const phoneSuffix = rawPhone.length >= 4 ? rawPhone.slice(-4) : '';
                           const linePrefix = getLineRoomPrefix(room.room_no);
                           const regCode = phoneSuffix ? `${linePrefix}${phoneSuffix}` : '-';
                           const isLinked = !!room.line_user_id;
@@ -2670,7 +2670,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v1.9)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.0)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
@@ -2780,7 +2780,7 @@ export default function AdminCondoApp() {
                 <div className="border-t pt-3 space-y-3">
                   <h3 className="font-bold text-slate-800">ข้อมูลบัญชีรับเงิน & พร้อมเพย์</h3>
                   <div>
-                    <label className="text-slate-700 font-bold block mb-1">เบอร์พร้อมเพย์ / เลขผู้เสียภาษีนิติ</label>
+                    <label className="text-slate-700 font-bold block mb-1">เลขผู้เสียภาษีนิติ</label>
                     <input
                       type="text"
                       value={promptpayNo}

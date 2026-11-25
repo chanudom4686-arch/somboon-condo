@@ -1,5 +1,5 @@
 // LINE OA Webhook Handler with Customizable Auto-Reply Rules, Meter Photo Image Attachment & Asia/Bangkok Timezone
-// Version 1.6
+// Version 2.0 - 7-Digit LINE Registration Code (3-digit room + 4-digit phone suffix)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -121,12 +121,12 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // B. Handle 6-Digit Room Registration Code (e.g. "005273", or paired "064273" / "065273" -> "064-065")
+        // B. Handle 7-Digit Room Registration Code (3-digit room + 4-digit phone suffix, e.g. "0056273" or paired "0646273")
         const cleanDigits = text.replace(/[^0-9]/g, '');
-        if (cleanDigits.length === 6 && text.length <= 10) {
+        if (cleanDigits.length === 7 && text.length <= 12) {
           const rawPrefix = cleanDigits.substring(0, 3);
           const roomPrefix = resolveRoomNo(rawPrefix);
-          const phoneSuffix = cleanDigits.substring(3, 6);
+          const phoneSuffix = cleanDigits.substring(3, 7);
 
           const { data: roomData, error: roomErr } = await supabase
             .from('rooms')
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `⚠️ ไม่พบข้อมูลห้องเลขที่ ${formatRoomNo(roomPrefix)}\nโปรดตรวจสอบเลขห้อง 3 หลักให้ถูกต้องครับ (เช่น ห้อง 005 เบอร์ลงท้าย 273 ให้พิมพ์ 005273)`,
+                  text: `⚠️ ไม่พบข้อมูลห้องเลขที่ ${formatRoomNo(roomPrefix)}\nโปรดตรวจสอบเลขห้อง 3 หลักให้ถูกต้องครับ (เช่น ห้อง 005 เบอร์ลงท้าย 6273 ให้พิมพ์ 0056273)`,
                 },
               ],
               accessToken
@@ -150,8 +150,8 @@ export async function POST(req: NextRequest) {
 
           const cleanOwnerPhone = (roomData.owner_phone || '').replace(/[^0-9]/g, '');
           const cleanTenantPhone = (roomData.tenant_phone || '').replace(/[^0-9]/g, '');
-          const ownerMatch = cleanOwnerPhone.length >= 3 && cleanOwnerPhone.endsWith(phoneSuffix);
-          const tenantMatch = cleanTenantPhone.length >= 3 && cleanTenantPhone.endsWith(phoneSuffix);
+          const ownerMatch = cleanOwnerPhone.length >= 4 && cleanOwnerPhone.endsWith(phoneSuffix);
+          const tenantMatch = cleanTenantPhone.length >= 4 && cleanTenantPhone.endsWith(phoneSuffix);
 
           if (ownerMatch || tenantMatch) {
             await supabase
@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `⚠️ เบอร์โทรศัพท์ 3 ตัวท้าย (${phoneSuffix}) ไม่ตรงกับเบอร์ที่ลงทะเบียนไว้กับห้อง ${formatRoomNo(roomPrefix)}\n\nโปรดตรวจสอบเบอร์โทรศัพท์ที่แจ้งไว้กับนิติบุคคลครับ`,
+                  text: `⚠️ เบอร์โทรศัพท์ 4 ตัวท้าย (${phoneSuffix}) ไม่ตรงกับเบอร์ที่ลงทะเบียนไว้กับห้อง ${formatRoomNo(roomPrefix)}\n\nโปรดตรวจสอบเบอร์โทรศัพท์ที่แจ้งไว้กับนิติบุคคลครับ`,
                 },
               ],
               accessToken
@@ -224,7 +224,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\n\n📌 วิธีลงทะเบียน:\nพิมพ์เลขห้อง 3 หลัก ตามด้วยเบอร์โทรศัพท์ 3 ตัวท้าย\n(เช่น ห้อง 005 เบอร์ลงท้าย 273 พิมพ์: 005273)`,
+                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\n\n📌 วิธีลงทะเบียน:\nพิมพ์เลขห้อง 3 หลัก ตามด้วยเบอร์โทรศัพท์ 4 ตัวท้าย\n(เช่น ห้อง 005 เบอร์ลงท้าย 6273 พิมพ์: 0056273)`,
                 },
               ],
               accessToken
@@ -410,7 +410,7 @@ export async function POST(req: NextRequest) {
 
         const defaultGreeting = (
           config.LINE_GREETING_MESSAGE ||
-          `สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name}\n\n📌 หากยังไม่ได้ผูกห้องชุด:\nโปรดพิมพ์ เลขห้อง 3 หลัก ตามด้วยเบอร์โทร 3 ตัวท้าย (เช่น 005273)\n\n📌 หากผูกห้องแล้ว พิมพ์คำว่า "เมนู" หรือ "ดูบิล" ได้เลยครับ`
+          `สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name}\n\n📌 หากยังไม่ได้ผูกห้องชุด:\nโปรดพิมพ์ เลขห้อง 3 หลัก ตามด้วยเบอร์โทร 4 ตัวท้าย (เช่น 0056273)\n\n📌 หากผูกห้องแล้ว พิมพ์คำว่า "เมนู" หรือ "ดูบิล" ได้เลยครับ`
         ).replace(/\{condo_name\}/g, condoName);
 
         await replyLineMessage(
