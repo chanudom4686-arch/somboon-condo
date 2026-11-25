@@ -1,7 +1,7 @@
 'use client';
 
 // Printable 4-Bills-Per-A4 Component (Invoices & Receipts)
-// Version 1.8 - Search-only filter (removed room range dropdown) & Detailed Payment Method / Late Status on Receipts
+// Version 1.9 - 100% Monochrome Black & White Print Design, Clean A4 Page Isolation & Pagination
 
 import React, { useState, useMemo } from 'react';
 import { BillCalculationResult, CondoConfig, Room, MeterLog } from '@/types/condo';
@@ -101,37 +101,39 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
   }, [bills, roomMap, logMap, docType, excludeProblemRooms, onlySelected, preselectedRoomNos, roomSearch]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto print:static print:inset-auto print:z-auto print:bg-white print:overflow-visible print:backdrop-blur-none">
       {/* Top Bar for Screen Preview */}
       <div className="sticky top-0 z-50 bg-white border-b px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm print:hidden">
         <div>
           <h2 className="font-bold text-slate-800 text-base sm:text-lg">
-            {docType === 'receipt' ? '🧾 พิมพ์ใบเสร็จรับเงิน (RECEIPT)' : '🖨️ พิมพ์ใบแจ้งหนี้ (INVOICE)'}{' '}
+            {docType === 'receipt'
+              ? '🧾 พิมพ์ใบเสร็จรับเงินขาว-ดำ (RECEIPT)'
+              : '🖨️ พิมพ์ใบแจ้งหนี้ขาว-ดำ (INVOICE)'}{' '}
             (แสดง {filteredBills.length} ห้อง / {Math.max(1, Math.ceil(filteredBills.length / 4))} แผ่น A4)
           </h2>
           <p className="text-xs text-slate-500">
-            ระบบจัดหน้า 4 ใบต่อ 1 แผ่น A4 อัตโนมัติ พร้อมเส้นประสำหรับตัดแจก
+            โหมดพิมพ์ขาว-ดำคมชัด (Black & White) จัดหน้า 4 ใบต่อ 1 แผ่น A4 พร้อมเส้นประสำหรับตัดแจก
           </p>
         </div>
 
-        {/* Print Filter Controls (Search Only — Room Range Removed) */}
+        {/* Print Filter Controls */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <select
             value={docType}
             onChange={(e) => setDocType(e.target.value as 'invoice' | 'receipt')}
-            className="border-2 border-blue-500 rounded-lg px-2.5 py-1.5 bg-blue-50 font-bold text-blue-800"
+            className="border-2 border-slate-800 rounded-lg px-2.5 py-1.5 bg-slate-100 font-bold text-slate-900"
           >
-            <option value="invoice">📄 ใบแจ้งหนี้ (INVOICE)</option>
-            <option value="receipt">🧾 ใบเสร็จรับเงิน (RECEIPT)</option>
+            <option value="invoice">📄 ใบแจ้งหนี้ (INVOICE - ขาวดำ)</option>
+            <option value="receipt">🧾 ใบเสร็จรับเงิน (RECEIPT - ขาวดำ)</option>
           </select>
 
           {preselectedRoomNos.length > 0 && (
-            <label className="flex items-center gap-1.5 bg-blue-100 text-blue-900 px-3 py-1.5 rounded-lg cursor-pointer font-bold">
+            <label className="flex items-center gap-1.5 bg-slate-200 text-slate-900 px-3 py-1.5 rounded-lg cursor-pointer font-bold">
               <input
                 type="checkbox"
                 checked={onlySelected}
                 onChange={(e) => setOnlySelected(e.target.checked)}
-                className="rounded text-blue-600"
+                className="rounded text-slate-900"
               />
               <span>เฉพาะห้องที่เลือก ({preselectedRoomNos.length} ห้อง)</span>
             </label>
@@ -144,7 +146,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                   type="checkbox"
                   checked={excludeProblemRooms}
                   onChange={(e) => setExcludeProblemRooms(e.target.checked)}
-                  className="rounded text-blue-600"
+                  className="rounded text-slate-900"
                 />
                 <span>ข้ามห้องมีปัญหา</span>
               </label>
@@ -161,9 +163,9 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
 
           <button
             onClick={() => window.print()}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow flex items-center gap-1.5 text-xs sm:text-sm"
+            className="px-4 py-2 bg-slate-900 hover:bg-black text-white font-bold rounded-lg shadow flex items-center gap-1.5 text-xs sm:text-sm"
           >
-            <span>🖨️ สั่งพิมพ์ / บันทึก PDF</span>
+            <span>🖨️ สั่งพิมพ์ขาว-ดำ / บันทึก PDF</span>
           </button>
 
           {onClose && (
@@ -178,11 +180,18 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
       </div>
 
       {/* Printable Sheet Container */}
-      <div className="p-4 flex flex-col items-center print:p-0">
-        <style dangerouslySetInnerHTML={{ __html: `
+      <div className="p-4 flex flex-col items-center print:p-0 print:block">
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
           @media print {
-            body {
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            html, body {
               background: white !important;
+              color: black !important;
               margin: 0 !important;
               padding: 0 !important;
             }
@@ -195,12 +204,20 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
             }
             .a4-page {
               width: 200mm;
-              height: 287mm;
+              height: 286mm;
               page-break-after: always;
+              break-after: page;
+              page-break-inside: avoid;
+              break-inside: avoid;
               display: grid;
               grid-template-columns: 1fr 1fr;
               grid-template-rows: 1fr 1fr;
               box-sizing: border-box;
+              background: white !important;
+            }
+            .a4-page:last-child {
+              page-break-after: auto;
+              break-after: auto;
             }
           }
           @media screen {
@@ -209,7 +226,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
               min-height: 297mm;
               background: white;
               margin-bottom: 20px;
-              box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+              box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15);
               display: grid;
               grid-template-columns: 1fr 1fr;
               grid-template-rows: 1fr 1fr;
@@ -217,7 +234,9 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
               box-sizing: border-box;
             }
           }
-        `}} />
+        `,
+          }}
+        />
 
         {Array.from({ length: Math.max(1, Math.ceil(filteredBills.length / 4)) }).map((_, pageIdx) => {
           const pageBills = filteredBills.slice(pageIdx * 4, pageIdx * 4 + 4);
@@ -242,170 +261,177 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                 return (
                   <div
                     key={bill.room_no}
-                    className="p-3 border border-dashed border-slate-300 flex flex-col justify-between text-slate-800 text-xs box-sizing:border-box"
+                    className="p-3 border border-dashed border-black flex flex-col justify-between text-black text-xs box-border bg-white"
                     style={{ minHeight: '140mm' }}
                   >
-                    {/* Header */}
+                    {/* Header (100% Black & White) */}
                     <div>
-                      <div className="flex justify-between items-start border-b pb-1.5 mb-1.5">
+                      <div className="flex justify-between items-start border-b-2 border-black pb-1.5 mb-1.5">
                         <div>
-                          <div className="font-bold text-sm text-slate-900">{condoName}</div>
-                          <div className="text-[10px] font-bold text-slate-600">
+                          <div className="font-bold text-sm text-black">{condoName}</div>
+                          <div className="text-[10px] font-bold text-black">
                             {isReceipt ? 'ใบเสร็จรับเงิน / RECEIPT' : 'ใบแจ้งหนี้ประจำเดือน / INVOICE'}
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="font-bold text-blue-700 text-sm">ห้อง {bill.formatted_room}</div>
-                          <div className="text-[10px] text-slate-500">เลขที่: {docNo}</div>
+                          <div className="font-extrabold text-black text-sm border border-black px-2 py-0.5 rounded bg-neutral-100 inline-block">
+                            ห้อง {bill.formatted_room}
+                          </div>
+                          <div className="text-[10px] text-neutral-800 mt-0.5 font-mono">เลขที่: {docNo}</div>
                         </div>
                       </div>
 
                       {/* Period & Due Date */}
-                      <div className="flex justify-between bg-slate-50 px-2 py-1 rounded mb-1.5 text-[11px]">
+                      <div className="flex justify-between border border-black bg-neutral-100 px-2 py-1 rounded mb-1.5 text-[11px] text-black">
                         <div>
-                          <span className="text-slate-500">รอบบิล/Period: </span>
-                          <span className="font-semibold">{bill.period}</span>
+                          <span>รอบบิล/Period: </span>
+                          <span className="font-bold">{bill.period}</span>
                         </div>
                         <div>
                           {isReceipt ? (
                             <>
-                              <span className="text-slate-500">วันที่รับชำระ: </span>
-                              <span className="font-semibold text-emerald-700">
+                              <span>วันที่รับชำระ: </span>
+                              <span className="font-bold underline">
                                 {log?.paid_timestamp
-                                  ? new Date(log.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
+                                  ? new Date(log.paid_timestamp).toLocaleDateString('th-TH', {
+                                      timeZone: 'Asia/Bangkok',
+                                    })
                                   : new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })}
                               </span>
                             </>
                           ) : (
                             <>
-                              <span className="text-slate-500">ครบกำหนด/Due: </span>
-                              <span className="font-semibold text-red-600">{bill.due_date}</span>
+                              <span>ครบกำหนด/Due: </span>
+                              <span className="font-bold underline">{bill.due_date}</span>
                             </>
                           )}
                         </div>
                       </div>
 
                       {/* Meter Info Box */}
-                      <div className="border border-slate-200 rounded p-1.5 mb-1.5 bg-blue-50/40 text-[11px]">
+                      <div className="border border-black rounded p-1.5 mb-1.5 bg-white text-[11px] text-black">
                         <div className="flex justify-between">
-                          <span>เลขมิเตอร์น้ำ/Meter: <b>{bill.curr_meter}</b></span>
-                          <span className="text-slate-500">(ครั้งก่อน: {bill.prev_meter})</span>
-                          <span className="font-bold text-blue-800">ใช้น้ำ: {bill.units_used} หน่วย</span>
+                          <span>
+                            เลขมิเตอร์น้ำ/Meter: <b>{bill.curr_meter}</b>
+                          </span>
+                          <span>(ครั้งก่อน: {bill.prev_meter})</span>
+                          <span className="font-bold">ใช้น้ำ: {bill.units_used} หน่วย</span>
                         </div>
                       </div>
 
-                      {/* Calculation Breakdown Table */}
-                      <table className="w-full text-[11px] mb-1.5">
+                      {/* Calculation Breakdown Table (Pure Black & White) */}
+                      <table className="w-full text-[11px] mb-1.5 text-black">
                         <tbody>
-                          <tr className="border-b border-slate-100">
-                            <td className="py-0.5">1. ค่าน้ำประปา / Water ({bill.units_used} หน่วย × {bill.water_rate} บ.)</td>
-                            <td className="text-right font-medium">{bill.water_amount.toFixed(2)}</td>
+                          <tr className="border-b border-neutral-300">
+                            <td className="py-0.5">
+                              1. ค่าน้ำประปา / Water ({bill.units_used} หน่วย × {bill.water_rate} บ.)
+                            </td>
+                            <td className="text-right font-mono font-medium">{bill.water_amount.toFixed(2)}</td>
                           </tr>
-                          <tr className="border-b border-slate-100">
-                            <td className="py-0.5">2. ค่าบำบัดน้ำเสีย / Wastewater ({bill.units_used} หน่วย × {bill.wastewater_rate} บ.)</td>
-                            <td className="text-right font-medium">{bill.wastewater_amount.toFixed(2)}</td>
+                          <tr className="border-b border-neutral-300">
+                            <td className="py-0.5">
+                              2. ค่าบำบัดน้ำเสีย / Wastewater ({bill.units_used} หน่วย × {bill.wastewater_rate} บ.)
+                            </td>
+                            <td className="text-right font-mono font-medium">
+                              {bill.wastewater_amount.toFixed(2)}
+                            </td>
                           </tr>
-                          <tr className="border-b border-slate-100">
+                          <tr className="border-b border-neutral-300">
                             <td className="py-0.5">3. ค่าส่วนกลาง / Common Fee</td>
-                            <td className="text-right font-medium">{bill.common_fee.toFixed(2)}</td>
+                            <td className="text-right font-mono font-medium">{bill.common_fee.toFixed(2)}</td>
                           </tr>
                           {customLineItems.map((cItem, cIdx) => (
-                            <tr
-                              key={cIdx}
-                              className={`border-b border-slate-100 ${
-                                cItem.amount < 0 ? 'text-emerald-700' : 'text-amber-700'
-                              }`}
-                            >
+                            <tr key={cIdx} className="border-b border-neutral-300 font-semibold">
                               <td className="py-0.5">
                                 {cIdx + 4}. {cItem.label}
                               </td>
-                              <td className="text-right font-semibold">
+                              <td className="text-right font-mono">
                                 {cItem.amount > 0 ? `+${cItem.amount.toFixed(2)}` : cItem.amount.toFixed(2)}
                               </td>
                             </tr>
                           ))}
                           {(bill.late_fee || 0) > 0 && (
-                            <tr className="border-b border-slate-100 text-red-600">
+                            <tr className="border-b border-neutral-300 font-semibold">
                               <td className="py-0.5">เบี้ยปรับชำระล่าช้า / Late Fee</td>
-                              <td className="text-right font-semibold">+{bill.late_fee.toFixed(2)}</td>
+                              <td className="text-right font-mono">+{bill.late_fee.toFixed(2)}</td>
                             </tr>
                           )}
                           {bill.contribution_deducted > 0 && (
-                            <tr className="border-b border-slate-100 text-emerald-700">
+                            <tr className="border-b border-neutral-300 font-semibold">
                               <td className="py-0.5">★ หักเครดิตสมทบทุนซ่อมตึก / Fund Credit</td>
-                              <td className="text-right font-semibold">-{bill.contribution_deducted.toFixed(2)}</td>
+                              <td className="text-right font-mono">-{bill.contribution_deducted.toFixed(2)}</td>
                             </tr>
                           )}
                           {bill.prepaid_deducted > 0 && (
-                            <tr className="border-b border-slate-100 text-emerald-700">
+                            <tr className="border-b border-neutral-300 font-semibold">
                               <td className="py-0.5">★ หักเงินฝากล่วงหน้า / Prepaid Deposit</td>
-                              <td className="text-right font-semibold">-{bill.prepaid_deducted.toFixed(2)}</td>
+                              <td className="text-right font-mono">-{bill.prepaid_deducted.toFixed(2)}</td>
                             </tr>
                           )}
                           {bill.outstanding_balance > 0 && (
-                            <tr className="border-b border-slate-100 text-red-600">
+                            <tr className="border-b border-neutral-300 font-bold">
                               <td className="py-0.5">ค้างชำระยกมา / Outstanding Balance</td>
-                              <td className="text-right font-semibold">+{bill.outstanding_balance.toFixed(2)}</td>
+                              <td className="text-right font-mono">+{bill.outstanding_balance.toFixed(2)}</td>
                             </tr>
                           )}
                         </tbody>
                       </table>
                     </div>
 
-                    {/* Total & Payment Section */}
+                    {/* Total & Payment Section (Black & White High-Contrast) */}
                     <div>
-                      <div className={`${isReceipt ? 'bg-emerald-900' : 'bg-slate-900'} text-white p-2 rounded flex justify-between items-center mb-1.5`}>
+                      <div className="border-2 border-black bg-neutral-100 text-black p-2 rounded flex justify-between items-center mb-1.5">
                         <div>
-                          <div className="text-[10px] text-slate-200">
+                          <div className="text-[11px] font-bold text-black">
                             {isReceipt ? 'ยอดรับชำระสุทธิ' : 'ยอดรวมที่ต้องชำระ'}
                           </div>
-                          <div className="text-[9px] text-slate-300">
+                          <div className="text-[9px] font-semibold text-neutral-700">
                             {isReceipt ? 'TOTAL RECEIVED' : 'TOTAL AMOUNT DUE'}
                           </div>
                         </div>
                         <div className="text-right">
-                          <span className="text-lg font-bold text-sky-300">
+                          <span className="text-lg font-extrabold text-black font-mono">
                             {bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                           </span>
-                          <span className="text-[10px] text-slate-200 ml-1">บาท/THB</span>
+                          <span className="text-[10px] font-bold text-black ml-1">บาท/THB</span>
                         </div>
                       </div>
 
                       {isReceipt ? (
-                        <div className="bg-emerald-50 border border-emerald-200 p-2 rounded text-[10px] flex justify-between items-center">
+                        <div className="bg-white border border-black p-2 rounded text-[10px] text-black flex justify-between items-center">
                           <div className="space-y-0.5">
-                            <div className="font-bold text-emerald-900">
-                              ✅ ได้รับชำระเงินเรียบร้อยแล้ว {log?.is_late_payment ? '(ชำระล่าช้า)' : '(ตามกำหนด)'}
+                            <div className="font-bold text-black">
+                              ✓ ได้รับชำระเงินเรียบร้อยแล้ว {log?.is_late_payment ? '(ชำระล่าช้า)' : '(ตามกำหนด)'}
                             </div>
-                            <div className="text-slate-700 font-semibold">
-                              รับชำระโดย: <b className="text-blue-800">{paidMethodLabel}</b>
+                            <div className="text-black">
+                              รับชำระโดย: <b className="underline">{paidMethodLabel}</b>
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="text-slate-500">ผู้รับเงิน / นิติบุคคล</div>
-                            <div className="font-bold text-slate-800 mt-1">________________</div>
+                            <div className="text-neutral-700">ผู้รับเงิน / นิติบุคคล</div>
+                            <div className="font-bold text-black mt-1">________________</div>
                           </div>
                         </div>
                       ) : (
-                        <div className="flex gap-2 items-center bg-slate-50 p-1.5 rounded border border-slate-200">
+                        <div className="flex gap-2 items-center bg-white p-1.5 rounded border border-black text-black">
                           {qrUrl ? (
                             <img
                               src={qrUrl}
                               alt="PromptPay QR"
-                              className="w-16 h-16 border rounded bg-white p-0.5"
+                              className="w-16 h-16 border border-black rounded bg-white p-0.5"
                             />
                           ) : (
-                            <div className="w-16 h-16 border rounded bg-slate-200 flex items-center justify-center text-[9px] text-slate-500 text-center">
+                            <div className="w-16 h-16 border border-black rounded bg-neutral-100 flex items-center justify-center text-[9px] text-black text-center">
                               QR พร้อมเพย์
                             </div>
                           )}
-                          <div className="text-[10px] leading-tight flex-1">
-                            <div className="font-bold text-slate-800">สแกนจ่ายผ่านพร้อมเพย์</div>
-                            <div className="text-slate-600">หรือโอน: {bankName}</div>
-                            <div className="font-mono text-slate-900 font-semibold">{bankAccNo}</div>
-                            <div className="text-slate-500 truncate">{bankAccName}</div>
+                          <div className="text-[10px] leading-tight flex-1 text-black">
+                            <div className="font-bold">สแกนจ่ายผ่านพร้อมเพย์</div>
+                            <div>หรือโอน: {bankName}</div>
+                            <div className="font-mono font-bold">{bankAccNo}</div>
+                            <div className="truncate">{bankAccName}</div>
                             {bill.contribution_after > 0 && (
-                              <div className="text-emerald-700 font-medium mt-0.5">
+                              <div className="font-semibold mt-0.5">
                                 เครดิตสมทบคงเหลือ: {bill.contribution_after.toLocaleString()} บ.
                               </div>
                             )}
@@ -414,10 +440,13 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       )}
 
                       {/* Notes / Footer */}
-                      <div className="mt-1 text-[9px] text-slate-500 text-center border-t border-slate-100 pt-0.5">
+                      <div className="mt-1 text-[9px] text-black text-center border-t border-neutral-400 pt-0.5">
                         <div>โปรดชำระเงินภายในวันที่ {bill.due_date} หากชำระแล้วแจ้งสลิปทาง LINE OA</div>
-                        <div className="text-emerald-800 font-medium mt-0.5">
-                          📱 รับบิลทาง LINE OA พิมพ์รหัส: <b className="font-mono bg-emerald-100 text-slate-900 px-1 py-0.2 rounded border border-emerald-300">{bill.line_reg_code}</b>
+                        <div className="font-semibold mt-0.5">
+                          📱 รับบิลทาง LINE OA พิมพ์รหัส:{' '}
+                          <b className="font-mono bg-white text-black px-1 py-0.2 rounded border border-black">
+                            {bill.line_reg_code}
+                          </b>
                         </div>
                       </div>
                     </div>

@@ -153,7 +153,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
       await supabase.from('transactions').insert({
         fund_type: 'operating',
-        type: 'รายรับ',
+        type: 'income',
         category: 'รับชำระบิลค่าน้ำและค่าส่วนกลาง',
         amount: amount,
         tx_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }),

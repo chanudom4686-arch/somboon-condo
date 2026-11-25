@@ -1,8 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 1.8 - Paired Rooms (645/64-65, 144-145, 164-165, 186-187), Search-Only Bar,
-// Auto-Overdue after 5th, Late Payment Tracking, Removed KPI Labels, and Dedicated Receipt Printing on Tab 3
+// Version 1.9 - B&W A4 Print Isolation & Overdue Highlight, Fixed transactions_type_check, Simplified Water Bill Cost Input
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -927,7 +926,7 @@ export default function AdminCondoApp() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800">
       {/* Top Header with Easy Period Stepper */}
-      <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
+      <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md print:hidden">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center font-bold text-white shadow">
@@ -937,7 +936,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v1.8
+                  ระบบบริหารนิติบุคคล v1.9
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -1017,7 +1016,7 @@ export default function AdminCondoApp() {
       </header>
 
       {/* Main Navigation Tabs (Removed KPI label from Tab 3) */}
-      <nav className="bg-white border-b shadow-sm sticky top-[64px] z-30 overflow-x-auto text-xs">
+      <nav className="bg-white border-b shadow-sm sticky top-[64px] z-30 overflow-x-auto text-xs print:hidden">
         <div className="max-w-7xl mx-auto flex">
           {[
             { id: 'audit', label: '1. 🔍 ตรวจมิเตอร์ & รูปถ่าย', count: `${readCount}/${rooms.length}` },
@@ -1053,7 +1052,7 @@ export default function AdminCondoApp() {
       </nav>
 
       {/* Main Content Area */}
-      <main className="max-w-7xl mx-auto w-full p-3 sm:p-5 flex-1 space-y-4">
+      <main className="max-w-7xl mx-auto w-full p-3 sm:p-5 flex-1 space-y-4 print:hidden">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400">
             <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
@@ -2166,35 +2165,22 @@ export default function AdminCondoApp() {
                 <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-2xl space-y-3 text-xs">
                   <div>
                     <h3 className="font-bold text-blue-900 text-sm">
-                      💧 กระทบยอดส่วนต่างค่าน้ำประปา (เทียบ 195 ห้องชุด กับ บิลการประปานครหลวง)
+                      💧 ข้อมูลค่าน้ำประปา (เทียบ 195 ห้องชุด กับ บิลการประปานครหลวง)
                     </h3>
                     <p className="text-blue-700">
                       ค่าน้ำประปา 35 บาท/หน่วย ({billingSummary.totalWaterAmt.toLocaleString()} บ.) + ค่าบำบัดน้ำเสีย 5 บาท/หน่วย ({billingSummary.totalWastewaterAmt.toLocaleString()} บ.)
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-white p-3.5 rounded-xl border border-blue-100">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 rounded-xl border border-blue-100">
                     <div>
-                      <span className="text-slate-500 block">หน่วยน้ำรวมที่เก็บจากทุกห้อง</span>
+                      <span className="text-slate-500 block">หน่วยน้ำรวมที่เก็บจาก 195 ห้อง</span>
                       <span className="text-lg font-bold text-blue-800 font-mono">
                         {billingSummary.totalWaterUnits.toLocaleString()} หน่วย
                       </span>
                       <span className="text-[11px] text-slate-500 block">
                         ค่าน้ำ {billingSummary.totalWaterAmt.toLocaleString()} + บำบัด {billingSummary.totalWastewaterAmt.toLocaleString()} บ.
                       </span>
-                    </div>
-
-                    <div>
-                      <label className="text-slate-700 font-bold block mb-1">
-                        หน่วยน้ำตามบิลการประปาจริง
-                      </label>
-                      <input
-                        type="number"
-                        value={pwaUnitsStr}
-                        onChange={(e) => setPwaUnitsStr(e.target.value)}
-                        placeholder="กรอกหน่วยบิลประปา..."
-                        className="w-full border rounded-lg p-1.5 font-mono font-bold"
-                      />
                     </div>
 
                     <div>
@@ -2208,30 +2194,6 @@ export default function AdminCondoApp() {
                         placeholder="กรอกยอดเงินบิลประปา..."
                         className="w-full border rounded-lg p-1.5 font-mono font-bold"
                       />
-                    </div>
-
-                    <div className="bg-slate-50 p-2 rounded-lg border">
-                      <span className="text-slate-500 block">ผลต่างหน่วยน้ำ / ส่วนต่างเงิน</span>
-                      {pwaUnitsStr ? (
-                        <>
-                          <div className="font-bold font-mono text-sm text-slate-800">
-                            ต่างกัน: {billingSummary.totalWaterUnits - Number(pwaUnitsStr)} หน่วย
-                          </div>
-                          {pwaCostStr && (
-                            <div className="text-[11px] font-bold text-emerald-700">
-                              ส่วนต่างเงิน:{' '}
-                              {(
-                                billingSummary.totalWaterAmt +
-                                billingSummary.totalWastewaterAmt -
-                                Number(pwaCostStr)
-                              ).toLocaleString()}{' '}
-                              บ.
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-slate-400 text-[11px]">กรอกข้อมูลบิลประปาเพื่อคำนวณ</span>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -2272,10 +2234,12 @@ export default function AdminCondoApp() {
                             <td className="py-2 px-3">
                               <span
                                 className={`font-bold ${
-                                  tx.type === 'รายรับ' ? 'text-emerald-600' : 'text-red-600'
+                                  tx.type === 'รายรับ' || tx.type === 'income'
+                                    ? 'text-emerald-600'
+                                    : 'text-red-600'
                                 }`}
                               >
-                                {tx.type}
+                                {tx.type === 'รายรับ' || tx.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
                               </span>
                             </td>
                             <td className="py-2 px-3">
@@ -2284,10 +2248,12 @@ export default function AdminCondoApp() {
                             </td>
                             <td
                               className={`py-2 px-3 text-right font-mono font-bold ${
-                                tx.type === 'รายรับ' ? 'text-emerald-600' : 'text-red-600'
+                                tx.type === 'รายรับ' || tx.type === 'income'
+                                  ? 'text-emerald-600'
+                                  : 'text-red-600'
                               }`}
                             >
-                              {tx.type === 'รายรับ'
+                              {tx.type === 'รายรับ' || tx.type === 'income'
                                 ? `+${Number(tx.amount).toLocaleString()}`
                                 : `-${Number(tx.amount).toLocaleString()}`}
                             </td>
@@ -2704,7 +2670,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v1.8)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v1.9)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button

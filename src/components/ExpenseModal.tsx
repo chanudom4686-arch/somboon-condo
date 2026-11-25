@@ -1,7 +1,7 @@
 'use client';
 
 // Expense & Accounting Entry Modal
-// Version 1.0
+// Version 1.9 - Fixed transactions_type_check constraint ('expense') & Bangkok timezone date
 
 import React, { useState } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -17,7 +17,9 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({ onClose, onSuccess }
   const [fundType, setFundType] = useState<'operating' | 'maintenance_fund'>('operating');
   const [category, setCategory] = useState<string>('ค่าน้ำประปา (จ่ายการประปา)');
   const [amountStr, setAmountStr] = useState<string>('');
-  const [txDate, setTxDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [txDate, setTxDate] = useState<string>(
+    new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
+  );
   const [paymentMethod, setPaymentMethod] = useState<string>('โอนเงิน');
   const [note, setNote] = useState<string>('');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -74,7 +76,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({ onClose, onSuccess }
 
       const { error: txErr } = await supabase.from('transactions').insert({
         fund_type: fundType,
-        type: 'รายจ่าย',
+        type: 'expense',
         category,
         amount,
         tx_date: txDate,

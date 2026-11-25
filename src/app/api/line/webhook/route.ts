@@ -338,13 +338,13 @@ export async function POST(req: NextRequest) {
               .order('tx_date', { ascending: false });
 
             const totalFundIn = (fundTxs || [])
-              .filter((t: any) => t.type === 'รายรับ')
+              .filter((t: any) => t.type === 'รายรับ' || t.type === 'income')
               .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
             const totalFundOut = (fundTxs || [])
-              .filter((t: any) => t.type === 'รายจ่าย')
+              .filter((t: any) => t.type === 'รายจ่าย' || t.type === 'expense')
               .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
             const expenseItems = (fundTxs || [])
-              .filter((t: any) => t.type === 'รายจ่าย')
+              .filter((t: any) => t.type === 'รายจ่าย' || t.type === 'expense')
               .slice(0, 5)
               .map((t: any) => `  - ${t.tx_date}: ${t.category} (${Number(t.amount).toLocaleString()} บ.)`)
               .join('\n');
@@ -361,10 +361,10 @@ export async function POST(req: NextRequest) {
               .limit(100);
 
             const totalIn = (allTxs || [])
-              .filter((t: any) => t.type === 'รายรับ')
+              .filter((t: any) => t.type === 'รายรับ' || t.type === 'income')
               .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
             const totalOut = (allTxs || [])
-              .filter((t: any) => t.type === 'รายจ่าย')
+              .filter((t: any) => t.type === 'รายจ่าย' || t.type === 'expense')
               .reduce((s: number, t: any) => s + (Number(t.amount) || 0), 0);
             const netBal = totalIn - totalOut;
 

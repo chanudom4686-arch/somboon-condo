@@ -128,7 +128,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
 
       await supabase.from('transactions').insert({
         fund_type: 'maintenance_fund',
-        type: 'รายรับ',
+        type: 'income',
         category: 'เงินสมทบทุนซ่อมบำรุง',
         amount,
         tx_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }),
