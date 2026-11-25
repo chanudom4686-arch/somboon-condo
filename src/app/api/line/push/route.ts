@@ -1,5 +1,5 @@
 // LINE OA Push Notification API for Single Room or Selected Batch of Rooms
-// Version 1.6 - Attaches Meter Photo Image Bubble automatically & locks timestamp to Asia/Bangkok (UTC+7)
+// Version 2.3 - Text-only bill notifications (no meter photo sent to residents) & Asia/Bangkok timezone
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -77,10 +77,8 @@ export async function POST(req: NextRequest) {
       );
 
       let messageText = '';
-      let shouldAttachPhoto = false;
 
       if (mode === 'custom' && customMessage.trim() !== '') {
-        shouldAttachPhoto = customMessage.includes('{meter_photo}');
         messageText = customMessage
           .replace(/\{meter_photo\}/g, '')
           .replace(/\{condo_name\}/g, condoName)
@@ -95,8 +93,6 @@ export async function POST(req: NextRequest) {
           .replace(/\{due_date\}/g, bill.due_date)
           .trim();
       } else {
-        // Always attach meter photo if available when pushing a monthly bill!
-        shouldAttachPhoto = true;
         const extraLines: string[] = [];
         if (bill.special_items_note && bill.special_items_note.includes('|')) {
           bill.special_items_note.split('|').forEach((part) => {
@@ -138,22 +134,12 @@ export async function POST(req: NextRequest) {
           `🏦 ช่องทางโอนชำระ:\n` +
           `${config.BANK_NAME || 'กสิกรไทย'} เลขบัญชี: ${config.BANK_ACCOUNT_NO || '-'}\n` +
           `ชื่อบัญชี: ${config.BANK_ACCOUNT_NAME || condoName}\n` +
-          `พร้อมเพย์: ${config.PROMPTPAY_NO || '-'}\n\n` +
+          `เลขผู้เสียภาษีนิติ: ${config.PROMPTPAY_NO || '-'}\n\n` +
           `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏`;
       }
 
-      // Build messages array (Text + Optional Meter Photo Image Bubble)
-      const messagesPayload: any[] = [{ type: 'text', text: messageText }];
-      const photoUrl = log?.meter_photo_url;
-      if (shouldAttachPhoto && photoUrl && typeof photoUrl === 'string' && photoUrl.startsWith('https://')) {
-        messagesPayload.push({
-          type: 'image',
-          originalContentUrl: photoUrl,
-          previewImageUrl: photoUrl,
-        });
-      }
-
-      let res = await fetch('https://api.line.me/v2/bot/message/push', {
+      // Send text-only message (no meter photo sent to residents in LINE)
+      const res = await fetch('https://api.line.me/v2/bot/message/push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -161,24 +147,9 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           to: room.line_user_id,
-          messages: messagesPayload,
+          messages: [{ type: 'text', text: messageText }],
         }),
       });
-
-      // Fallback: if image attachment fails on an older image format, send text message alone
-      if (!res.ok && messagesPayload.length > 1) {
-        res = await fetch('https://api.line.me/v2/bot/message/push', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            to: room.line_user_id,
-            messages: [{ type: 'text', text: messageText }],
-          }),
-        });
-      }
 
       if (res.ok) {
         sentCount++;

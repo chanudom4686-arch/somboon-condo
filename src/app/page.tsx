@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 2.2 - Multi-Room Comma-Separated LINE Registration (001,002,...) & Multi-Room Bill Replies
+// Version 2.3 - Removed meter photo attachment from LINE resident notifications
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -939,7 +939,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.2
+                  ระบบบริหารนิติบุคคล v2.3
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -2381,8 +2381,7 @@ export default function AdminCondoApp() {
                         { tag: '{total_due}', desc: 'ยอดเงินสุทธิที่ต้องชำระ (บาท)' },
                         { tag: '{payment_status}', desc: 'สถานะ (ชำระแล้ว / รอชำระ)' },
                         { tag: '{due_date}', desc: 'วันที่ครบกำหนดชำระ (เช่น 5)' },
-                        { tag: '{meter_photo}', desc: '📷 แนบรูปถ่ายมิเตอร์น้ำของห้องนั้น' },
-                        { tag: '{bank_info}', desc: 'ชื่อธนาคาร เลขบัญชี และพร้อมเพย์' },
+                        { tag: '{bank_info}', desc: 'ชื่อธนาคาร เลขบัญชี และเลขผู้เสียภาษีนิติ' },
                         { tag: '{statement_12m}', desc: 'ประวัติการชำระย้อนหลัง 12 เดือน' },
                         { tag: '{fund_summary}', desc: 'สรุปยอดเงินระดมทุนซ่อมบำรุงตึก' },
                         { tag: '{building_finance}', desc: 'สรุปรายรับ-รายจ่ายรวมของอาคาร' },
@@ -2717,7 +2716,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.2)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.3)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button

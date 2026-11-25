@@ -1,7 +1,7 @@
 // LINE OA Webhook Handler with Multi-Room Comma-Separated 3-Step Registration (e.g. "001,002"),
 // Multi-Room Bill/Receipt/Statement Support, Bilingual (TH/EN) Commands, Follow Event Welcome,
-// Admin Working Hours (12.00 - 24.00), and Meter Photo Attachment
-// Version 2.2
+// and Admin Working Hours (12.00 - 24.00) — Text-only (No meter photo sent to residents)
+// Version 2.3
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -502,7 +502,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               [
                 {
                   type: 'text',
-                  text: `🎉 ลงทะเบียนผูกห้อง ${linkedRoomLabels} สำเร็จแล้วครับ!\nRegistration Complete for Room(s): ${linkedRoomLabels}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName}\n\n📌 คำสั่งตรวจสอบข้อมูลอัตโนมัติ (Thai / English Commands):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้และรูปมิเตอร์ทุกห้องที่ผูกไว้ / Current bill & meter photo\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Payment receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "รูปมิเตอร์" หรือ "meter" — ดูรูปถ่ายหน้าปัดมิเตอร์ / Meter photo\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ยอดเงินระดมทุนซ่อมตึก / Maintenance fund\n• พิมพ์ "การเงิน" หรือ "finance" — สรุปรายรับ-รายจ่ายตึก / Building finance\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ช่องทางโอนเงิน / Bank account\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: `🎉 ลงทะเบียนผูกห้อง ${linkedRoomLabels} สำเร็จแล้วครับ!\nRegistration Complete for Room(s): ${linkedRoomLabels}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName}\n\n📌 คำสั่งตรวจสอบข้อมูลอัตโนมัติ (Thai / English Commands):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้ทุกห้องที่ผูกไว้ / View current bill\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Payment receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ยอดเงินระดมทุนซ่อมตึก / Maintenance fund\n• พิมพ์ "การเงิน" หรือ "finance" — สรุปรายรับ-รายจ่ายตึก / Building finance\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ช่องทางโอนเงิน / Bank account\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -576,7 +576,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               [
                 {
                   type: 'text',
-                  text: `🎉 ลงทะเบียนผูกห้อง ${formatRoomNo(roomPrefix)} สำเร็จแล้วครับ!\nRegistration Complete for Room ${formatRoomNo(roomPrefix)}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName || 'เจ้าของร่วม/ผู้พักอาศัย'}\n\n📌 พิมพ์คำสั่งเพื่อตรวจสอบข้อมูลได้ทันที (Thai / English):\n• "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้และรูปมิเตอร์\n• "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน\n• "สเตทเมนท์" หรือ "statement" — ดูประวัติชำระย้อนหลัง 12 เดือน\n• "เงินระดมทุน" หรือ "fund" — ดูยอดเงินระดมทุนซ่อมตึก\n• "การเงิน" หรือ "finance" — ดูสรุปรายรับ-รายจ่ายของตึก\n• "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: `🎉 ลงทะเบียนผูกห้อง ${formatRoomNo(roomPrefix)} สำเร็จแล้วครับ!\nRegistration Complete for Room ${formatRoomNo(roomPrefix)}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName || 'เจ้าของร่วม/ผู้พักอาศัย'}\n\n📌 พิมพ์คำสั่งเพื่อตรวจสอบข้อมูลได้ทันที (Thai / English):\n• "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้รอบปัจจุบัน\n• "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน\n• "สเตทเมนท์" หรือ "statement" — ดูประวัติชำระย้อนหลัง 12 เดือน\n• "เงินระดมทุน" หรือ "fund" — ดูยอดเงินระดมทุนซ่อมตึก\n• "การเงิน" หรือ "finance" — ดูสรุปรายรับ-รายจ่ายของตึก\n• "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
                 },
               ],
               accessToken
@@ -817,17 +817,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           }
 
           const finalReply = renderedTexts.join('\n\n━━━━━━━━━━━━━━\n\n');
-          const replyBubbles: any[] = [{ type: 'text', text: finalReply || 'ข้อมูลรูปถ่ายมิเตอร์น้ำ' }];
-
-          if (wantsMeterPhoto && photoUrls.length > 0) {
-            photoUrls.slice(0, 4).forEach((pUrl) => {
-              replyBubbles.push({
-                type: 'image',
-                originalContentUrl: pUrl,
-                previewImageUrl: pUrl,
-              });
-            });
-          }
+          const replyBubbles: any[] = [{ type: 'text', text: finalReply || 'ข้อมูลใบแจ้งหนี้' }];
 
           await replyLineMessage(replyToken, replyBubbles, accessToken);
           continue;
