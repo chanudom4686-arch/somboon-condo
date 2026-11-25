@@ -1,5 +1,5 @@
 // LINE OA Push Notification API for Single Room or Selected Batch of Rooms
-// Version 1.5 - Explicitly separates Water (35 THB/unit) and Wastewater (5 THB/unit) + Itemized Custom Items
+// Version 1.6 - Attaches Meter Photo Image Bubble automatically & locks timestamp to Asia/Bangkok (UTC+7)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -77,16 +77,26 @@ export async function POST(req: NextRequest) {
       );
 
       let messageText = '';
+      let shouldAttachPhoto = false;
+
       if (mode === 'custom' && customMessage.trim() !== '') {
+        shouldAttachPhoto = customMessage.includes('{meter_photo}');
         messageText = customMessage
+          .replace(/\{meter_photo\}/g, '')
           .replace(/\{condo_name\}/g, condoName)
           .replace(/\{room_no\}/g, formatRoomNo(room.room_no))
           .replace(/\{owner_name\}/g, room.owner_name || room.tenant_name || 'ท่านเจ้าของร่วม')
           .replace(/\{period\}/g, activePeriod)
           .replace(/\{water_units\}/g, String(bill.units_used))
+          .replace(/\{water_amount\}/g, bill.water_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 }))
+          .replace(/\{wastewater_amount\}/g, bill.wastewater_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 }))
+          .replace(/\{common_fee\}/g, bill.common_fee.toLocaleString('th-TH', { minimumFractionDigits: 2 }))
           .replace(/\{total_due\}/g, bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 }))
-          .replace(/\{due_date\}/g, bill.due_date);
+          .replace(/\{due_date\}/g, bill.due_date)
+          .trim();
       } else {
+        // Always attach meter photo if available when pushing a monthly bill!
+        shouldAttachPhoto = true;
         const extraLines: string[] = [];
         if (bill.special_items_note && bill.special_items_note.includes('|')) {
           bill.special_items_note.split('|').forEach((part) => {
@@ -132,7 +142,18 @@ export async function POST(req: NextRequest) {
           `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏`;
       }
 
-      const res = await fetch('https://api.line.me/v2/bot/message/push', {
+      // Build messages array (Text + Optional Meter Photo Image Bubble)
+      const messagesPayload: any[] = [{ type: 'text', text: messageText }];
+      const photoUrl = log?.meter_photo_url;
+      if (shouldAttachPhoto && photoUrl && typeof photoUrl === 'string' && photoUrl.startsWith('https://')) {
+        messagesPayload.push({
+          type: 'image',
+          originalContentUrl: photoUrl,
+          previewImageUrl: photoUrl,
+        });
+      }
+
+      let res = await fetch('https://api.line.me/v2/bot/message/push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -140,13 +161,34 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           to: room.line_user_id,
-          messages: [{ type: 'text', text: messageText }],
+          messages: messagesPayload,
         }),
       });
 
+      // Fallback: if image attachment fails on an older image format, send text message alone
+      if (!res.ok && messagesPayload.length > 1) {
+        res = await fetch('https://api.line.me/v2/bot/message/push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            to: room.line_user_id,
+            messages: [{ type: 'text', text: messageText }],
+          }),
+        });
+      }
+
       if (res.ok) {
         sentCount++;
-        const nowTime = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+        // Explicitly lock to Thailand Timezone (Asia/Bangkok, GMT+7)
+        const nowTime = new Date().toLocaleTimeString('th-TH', {
+          timeZone: 'Asia/Bangkok',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
         await supabase
           .from('meter_logs')
           .upsert(
@@ -165,7 +207,7 @@ export async function POST(req: NextRequest) {
               contribution_deducted: bill.contribution_deducted,
               prepaid_deducted: bill.prepaid_deducted,
               total_amount: bill.total_amount,
-              line_push_status: `ส่งแล้ว (${nowTime})`,
+              line_push_status: `ส่งแล้ว (${nowTime} น.)`,
               followup_status: mode === 'custom' ? 'line_notified' : (log?.followup_status || 'none'),
               recorded_at: log?.recorded_at || new Date().toISOString(),
             },

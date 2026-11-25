@@ -131,7 +131,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
         type: 'รายรับ',
         category: 'เงินสมทบทุนซ่อมบำรุง',
         amount,
-        tx_date: new Date().toISOString().split('T')[0],
+        tx_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }),
         room_no: room.room_no,
         payment_method: 'โอนเงิน',
         note: `ห้อง ${formatRoomNo(room.room_no)} สมทบทุนซ่อมตึก (${walletDesc || '-'})`,

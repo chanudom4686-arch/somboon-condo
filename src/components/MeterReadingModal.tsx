@@ -1,7 +1,7 @@
 'use client';
 
 // Mobile-optimized Meter Reading Modal with Top-Header Watermark & Uncovered Photo Preview
-// Version 1.4 - Zero Floor badges, buttons placed outside photo frame, 720px resolution downscale, Quick Note Chips
+// Version 1.6 - Uploads .jpg for 100% LINE Image Bubble compatibility
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Room, MeterLog, CondoConfig } from '@/types/condo';
@@ -11,7 +11,7 @@ import { formatRoomNo, calculateBill } from '@/utils/billing';
 
 interface MeterReadingModalProps {
   room: Room;
-  period: string; // e.g. "2026-11"
+  period: string;
   existingLog?: MeterLog | null;
   config?: Partial<CondoConfig>;
   isAdminMode?: boolean;
@@ -95,7 +95,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
     }
   }, [isCameraActive]);
 
-  // Re-render top-header watermark automatically when meter numbers change
   useEffect(() => {
     if (!rawImageSource) return;
     let cancelled = false;
@@ -108,7 +107,7 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
           currMeter,
           unitsUsed,
           maxDimension: 720,
-          quality: 0.72,
+          quality: 0.75,
         });
         if (!cancelled) {
           setCapturedBlob(result.blob);
@@ -192,7 +191,7 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
         currMeter,
         unitsUsed,
         maxDimension: 720,
-        quality: 0.72,
+        quality: 0.75,
       });
       setCapturedBlob(result.blob);
       setPreviewUrl(result.dataUrl);
@@ -233,14 +232,14 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
           currMeter,
           unitsUsed,
           maxDimension: 720,
-          quality: 0.72,
+          quality: 0.75,
         });
 
-        const fileName = `${period}/${room.room_no}_${Date.now()}.webp`;
+        const fileName = `${period}/${room.room_no}_${Date.now()}.jpg`;
         const { data: uploadData, error: uploadErr } = await supabase.storage
           .from('meter-photos')
           .upload(fileName, finalWatermark.blob, {
-            contentType: 'image/webp',
+            contentType: 'image/jpeg',
             upsert: true,
           });
 
@@ -330,7 +329,7 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
       <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[96vh]">
-        {/* Top Header (Zero Floor Reference) */}
+        {/* Top Header */}
         <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -364,19 +363,18 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
             </div>
           )}
 
-          {/* STEP 1: PHOTO CAPTURE (Buttons placed BELOW image so 0% of the photo is covered!) */}
+          {/* STEP 1: PHOTO CAPTURE */}
           <div className="bg-slate-900 rounded-2xl overflow-hidden border border-slate-800">
             <div className="bg-slate-800/80 px-3 py-1.5 flex items-center justify-between text-xs text-slate-200">
               <span className="font-bold">ขั้นที่ 1: ถ่ายรูปหน้าปัดมิเตอร์</span>
               {previewUrl && (
                 <span className="text-emerald-400 font-bold text-[11px]">
-                  ✅ มีรูปถ่ายแล้ว {imageSizeKb > 0 ? `(ลดความละเอียด 720px • ${imageSizeKb} KB)` : ''}
+                  ✅ มีรูปถ่ายแล้ว {imageSizeKb > 0 ? `(720px • ${imageSizeKb} KB)` : ''}
                 </span>
               )}
             </div>
 
             {previewUrl && !isCameraActive ? (
-              /* Uncovered Full Photo Preview + Retake Controls Placed Below Photo */
               <div className="flex flex-col bg-slate-950">
                 <div className="w-full flex items-center justify-center bg-black p-1">
                   <img
@@ -385,7 +383,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
                     className="w-full h-auto max-h-72 object-contain rounded"
                   />
                 </div>
-                {/* Action Bar OUTSIDE & BELOW the photo so it never blocks the meter face */}
                 <div className="p-2.5 bg-slate-900 border-t border-slate-800 flex justify-center gap-2">
                   <label className="flex-1 py-2 px-3 bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow cursor-pointer flex items-center justify-center gap-1.5">
                     <span>📸 ถ่ายรูปใหม่ (กล้องมือถือ)</span>
@@ -409,7 +406,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
                 </div>
               </div>
             ) : isCameraActive ? (
-              /* Optional In-Browser Live Camera */
               <div className="relative bg-black aspect-video flex items-center justify-center">
                 <video
                   ref={videoRef}
@@ -442,7 +438,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
                 </div>
               </div>
             ) : (
-              /* Clean Action Buttons for Mobile Camera */
               <div className="p-4 text-center space-y-3">
                 <p className="text-xs text-slate-300">
                   กดปุ่มด้านล่างเพื่อเปิดกล้องมือถือถ่ายหน้าปัดมิเตอร์ (ป้ายข้อมูลจะอยู่ด้านบนเหนือรูป ไม่บังหน้าปัด 100%)
@@ -531,7 +526,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
               </div>
             </div>
 
-            {/* Quick One-Handed Helper Buttons */}
             <div>
               <span className="text-[10px] text-slate-500 block mb-1">ปุ่มลัดกดเร็ว (บวกเพิ่มจากเลขครั้งก่อน {prevMeter}):</span>
               <div className="grid grid-cols-5 gap-1.5">
@@ -557,7 +551,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
               </div>
             </div>
 
-            {/* Usage Summary Banner */}
             <div className="bg-sky-50 border border-sky-200 p-2.5 rounded-xl flex items-center justify-between">
               <span className="text-xs text-sky-900 font-bold">จำนวนหน่วยน้ำที่ใช้รอบนี้:</span>
               <div className="text-right">
@@ -578,7 +571,6 @@ export const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
               </div>
             )}
 
-            {/* Note Input + Quick Note Chips */}
             <div className="space-y-1.5">
               <label className="text-[11px] text-slate-500 block">หมายเหตุหน้าห้อง (จิ้มปุ่มลัดหรือพิมพ์เพิ่ม)</label>
               <div className="flex flex-wrap gap-1">

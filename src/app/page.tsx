@@ -1,8 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 1.5 - Admin Portal with Easy Month/Year Stepper, Expandable Auto-Next Audit Modal,
-// Separated Water (35 THB) & Wastewater (5 THB), and Multi-Item Bill Editor
+// Version 1.6 - Added Meter Photo LINE Push/Reply, Thai Dynamic Variable Guide with Click-to-Insert, and Asia/Bangkok (UTC+7) Timezone
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -880,7 +879,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v1.5
+                  ระบบบริหารนิติบุคคล v1.6
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -2285,34 +2284,60 @@ export default function AdminCondoApp() {
                     </button>
                   </div>
 
-                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-1">
-                    <span className="font-bold text-slate-700 block">
-                      💡 ตัวแปรอัตโนมัติที่นำมาใส่ในข้อความตอบกลับได้:
-                    </span>
-                    <div className="flex flex-wrap gap-1.5 text-[11px] font-mono text-blue-700 pt-1">
+                  <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-bold text-slate-800">
+                        💡 คู่มือตัวแปรอัตโนมัติ (คลิกที่ปุ่มตัวแปรเพื่อแทรกลงในช่องข้อความตอบกลับได้ทันที):
+                      </span>
+                      <span className="text-[11px] text-emerald-700 font-medium">
+                        ✨ ระบบจะดึงข้อมูลจริงของลูกบ้านห้องนั้นๆ แทนที่ให้อัตโนมัติเมื่อส่งเข้า LINE
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 pt-1">
                       {[
-                        '{condo_name}',
-                        '{room_no}',
-                        '{owner_name}',
-                        '{period}',
-                        '{water_units}',
-                        '{water_amount}',
-                        '{wastewater_amount}',
-                        '{common_fee}',
-                        '{total_due}',
-                        '{payment_status}',
-                        '{due_date}',
-                        '{bank_info}',
-                        '{statement_12m}',
-                        '{fund_summary}',
-                        '{building_finance}',
-                      ].map((tag) => (
-                        <span
-                          key={tag}
-                          className="bg-white border border-slate-300 px-2 py-0.5 rounded select-all"
+                        { tag: '{room_no}', desc: 'เลขห้องของลูกบ้าน (เช่น 645/005)' },
+                        { tag: '{owner_name}', desc: 'ชื่อเจ้าของห้อง / ผู้เช่า' },
+                        { tag: '{period}', desc: 'รอบบิลปัจจุบัน (เช่น 2026-11)' },
+                        { tag: '{prev_meter}', desc: 'เลขมิเตอร์น้ำครั้งก่อน' },
+                        { tag: '{curr_meter}', desc: 'เลขมิเตอร์น้ำครั้งนี้' },
+                        { tag: '{water_units}', desc: 'จำนวนหน่วยน้ำที่ใช้รอบนี้' },
+                        { tag: '{water_amount}', desc: 'ค่าน้ำประปา (35 บ./หน่วย)' },
+                        { tag: '{wastewater_amount}', desc: 'ค่าบำบัดน้ำเสีย (5 บ./หน่วย)' },
+                        { tag: '{common_fee}', desc: 'ค่าส่วนกลางตามขนาดห้อง' },
+                        { tag: '{extra_items}', desc: 'รายการเพิ่ม / ส่วนลด / หักเครดิต' },
+                        { tag: '{total_due}', desc: 'ยอดเงินสุทธิที่ต้องชำระ (บาท)' },
+                        { tag: '{payment_status}', desc: 'สถานะ (ชำระแล้ว / รอชำระ)' },
+                        { tag: '{due_date}', desc: 'วันที่ครบกำหนดชำระ (เช่น 5)' },
+                        { tag: '{meter_photo}', desc: '📷 แนบรูปถ่ายมิเตอร์น้ำของห้องนั้น' },
+                        { tag: '{bank_info}', desc: 'ชื่อธนาคาร เลขบัญชี และพร้อมเพย์' },
+                        { tag: '{statement_12m}', desc: 'ประวัติการชำระย้อนหลัง 12 เดือน' },
+                        { tag: '{fund_summary}', desc: 'สรุปยอดเงินระดมทุนซ่อมบำรุงตึก' },
+                        { tag: '{building_finance}', desc: 'สรุปรายรับ-รายจ่ายรวมของอาคาร' },
+                        { tag: '{condo_name}', desc: 'ชื่อคอนโดมิเนียม' },
+                      ].map((item) => (
+                        <button
+                          key={item.tag}
+                          type="button"
+                          onClick={() => {
+                            if (editingRule) {
+                              setEditingRule((prev) => ({
+                                ...prev,
+                                reply_text: `${prev?.reply_text || ''}${item.tag}`,
+                              }));
+                            } else {
+                              navigator.clipboard?.writeText(item.tag);
+                            }
+                          }}
+                          className="flex items-center justify-between gap-2 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 px-2.5 py-1.5 rounded-lg text-left transition"
+                          title="คลิกเพื่อแทรกตัวแปรนี้"
                         >
-                          {tag}
-                        </span>
+                          <span className="font-mono font-bold text-blue-700 text-[11px] shrink-0">
+                            {item.tag}
+                          </span>
+                          <span className="text-[11px] text-slate-600 truncate">
+                            = {item.desc}
+                          </span>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -2618,7 +2643,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v1.5)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v1.6)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button

@@ -1,5 +1,5 @@
-// LINE OA Webhook Handler with Customizable Auto-Reply Rules & Separated Water/Wastewater
-// Version 1.5
+// LINE OA Webhook Handler with Customizable Auto-Reply Rules, Meter Photo Image Attachment & Asia/Bangkok Timezone
+// Version 1.6
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -19,7 +19,7 @@ async function replyLineMessage(replyToken: string, messages: any[], accessToken
     return;
   }
   try {
-    await fetch('https://api.line.me/v2/bot/message/reply', {
+    const res = await fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -30,6 +30,9 @@ async function replyLineMessage(replyToken: string, messages: any[], accessToken
         messages,
       }),
     });
+    if (!res.ok) {
+      console.warn('LINE reply status:', res.status);
+    }
   } catch (err) {
     console.error('Failed to send LINE reply:', err);
   }
@@ -165,7 +168,7 @@ export async function POST(req: NextRequest) {
               [
                 {
                   type: 'text',
-                  text: `🎉 ลงทะเบียนผูกห้อง ${formatRoomNo(roomPrefix)} สำเร็จแล้วครับ!\nผู้รับข้อมูล: คุณ ${personName || 'เจ้าของร่วม/ผู้พักอาศัย'}\n\n📌 พิมพ์คำสั่งเพื่อตรวจสอบข้อมูลได้ทันที:\n• พิมพ์ "ดูบิล" — ดูใบแจ้งหนี้รอบปัจจุบัน\n• พิมพ์ "ใบเสร็จ" — ดูใบเสร็จรับเงิน\n• พิมพ์ "สเตทเมนท์" — ดูประวัติชำระย้อนหลัง 12 เดือน\n• พิมพ์ "เงินระดมทุน" — ดูยอดเงินระดมทุนซ่อมตึก\n• พิมพ์ "การเงิน" — ดูสรุปรายรับ-รายจ่ายของตึก\n• พิมพ์ "เมนู" — ดูคำสั่งทั้งหมด`,
+                  text: `🎉 ลงทะเบียนผูกห้อง ${formatRoomNo(roomPrefix)} สำเร็จแล้วครับ!\nผู้รับข้อมูล: คุณ ${personName || 'เจ้าของร่วม/ผู้พักอาศัย'}\n\n📌 พิมพ์คำสั่งเพื่อตรวจสอบข้อมูลได้ทันที:\n• พิมพ์ "ดูบิล" — ดูใบแจ้งหนี้และรูปถ่ายมิเตอร์รอบปัจจุบัน\n• พิมพ์ "ใบเสร็จ" — ดูใบเสร็จรับเงิน\n• พิมพ์ "สเตทเมนท์" — ดูประวัติชำระย้อนหลัง 12 เดือน\n• พิมพ์ "เงินระดมทุน" — ดูยอดเงินระดมทุนซ่อมตึก\n• พิมพ์ "การเงิน" — ดูสรุปรายรับ-รายจ่ายของตึก\n• พิมพ์ "เมนู" — ดูคำสั่งทั้งหมด`,
                 },
               ],
               accessToken
@@ -208,14 +211,19 @@ export async function POST(req: NextRequest) {
 
         if (matchedRule) {
           const mode = matchedRule.reply_mode || 'custom_text';
+          const wantsMeterPhoto =
+            mode === 'system_bill' || (matchedRule.reply_text || '').includes('{meter_photo}');
 
-          if (['system_bill', 'system_receipt', 'system_statement'].includes(mode) && !linkedRoom) {
+          if (
+            (['system_bill', 'system_receipt', 'system_statement'].includes(mode) || wantsMeterPhoto) &&
+            !linkedRoom
+          ) {
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิลและสเตทเมนท์ครับ\n\n📌 วิธีลงทะเบียน:\nพิมพ์เลขห้อง 3 หลัก ตามด้วยเบอร์โทรศัพท์ 3 ตัวท้าย\n(เช่น ห้อง 005 เบอร์ลงท้าย 273 พิมพ์: 005273)`,
+                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\n\n📌 วิธีลงทะเบียน:\nพิมพ์เลขห้อง 3 หลัก ตามด้วยเบอร์โทรศัพท์ 3 ตัวท้าย\n(เช่น ห้อง 005 เบอร์ลงท้าย 273 พิมพ์: 005273)`,
                 },
               ],
               accessToken
@@ -235,6 +243,7 @@ export async function POST(req: NextRequest) {
           let extraItems = '';
           let totalDue = '0.00';
           let paymentStatus = '⏳ รอชำระ';
+          let meterPhotoUrl: string | null = null;
 
           if (linkedRoom) {
             const { data: logData } = await supabase
@@ -244,6 +253,7 @@ export async function POST(req: NextRequest) {
               .eq('period', currentPeriod)
               .maybeSingle();
 
+            meterPhotoUrl = logData?.meter_photo_url || null;
             const pMeter = logData ? Number(logData.prev_meter) : Number(linkedRoom.latest_meter) || 0;
             const cMeter = logData ? Number(logData.curr_meter) : pMeter;
             const bill = calculateBill(
@@ -291,7 +301,7 @@ export async function POST(req: NextRequest) {
             extraItems = extraLines.length > 0 ? extraLines.join('\n') + '\n' : '';
             totalDue = bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
             paymentStatus = logData?.is_paid
-              ? `✅ ชำระแล้ว (${logData.paid_timestamp ? new Date(logData.paid_timestamp).toLocaleDateString('th-TH') : 'เรียบร้อย'})`
+              ? `✅ ชำระแล้ว (${logData.paid_timestamp ? new Date(logData.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'เรียบร้อย'})`
               : `⏳ รอชำระ (ครบกำหนดวันที่ ${dueDay})`;
           }
 
@@ -308,7 +318,7 @@ export async function POST(req: NextRequest) {
               statement12mText = historyLogs
                 .map((h: any) => {
                   const paidDate = h.paid_timestamp
-                    ? new Date(h.paid_timestamp).toLocaleDateString('th-TH')
+                    ? new Date(h.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
                     : '-';
                   return `• รอบ ${h.period}: ${Number(h.total_amount).toLocaleString()} บ. — ${
                     h.is_paid ? `✅ ชำระแล้ว (${paidDate})` : '⏳ ค้างชำระ'
@@ -361,6 +371,7 @@ export async function POST(req: NextRequest) {
           }
 
           const finalReply = (matchedRule.reply_text || '')
+            .replace(/\{meter_photo\}/g, '')
             .replace(/ค่าน้ำ\+บำบัด:/g, 'ค่าน้ำประปา:')
             .replace(/\{condo_name\}/g, condoName)
             .replace(/\{room_no\}/g, roomNoFormatted)
@@ -380,13 +391,19 @@ export async function POST(req: NextRequest) {
             .replace(/\{bank_info\}/g, bankInfoText)
             .replace(/\{statement_12m\}/g, statement12mText)
             .replace(/\{fund_summary\}/g, fundSummaryText)
-            .replace(/\{building_finance\}/g, buildingFinanceText);
+            .replace(/\{building_finance\}/g, buildingFinanceText)
+            .trim();
 
-          await replyLineMessage(
-            replyToken,
-            [{ type: 'text', text: finalReply }],
-            accessToken
-          );
+          const replyBubbles: any[] = [{ type: 'text', text: finalReply || 'ข้อมูลรูปถ่ายมิเตอร์น้ำ' }];
+          if (wantsMeterPhoto && meterPhotoUrl && meterPhotoUrl.startsWith('https://')) {
+            replyBubbles.push({
+              type: 'image',
+              originalContentUrl: meterPhotoUrl,
+              previewImageUrl: meterPhotoUrl,
+            });
+          }
+
+          await replyLineMessage(replyToken, replyBubbles, accessToken);
           continue;
         }
 

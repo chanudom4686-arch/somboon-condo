@@ -1,5 +1,5 @@
 // Watermark and Image Resolution Downscaler for Meter Photos
-// Version 1.4 - Downscales resolution to 720px and places metadata in an extended TOP HEADER above the photo so 0% of the meter photo is covered
+// Version 1.6 - Downscales resolution to 720px with Top Header Bar and exports standard JPEG (.jpg) for 100% LINE Image Bubble compatibility
 
 export interface WatermarkOptions {
   roomNo: string; // e.g. "645/087"
@@ -8,8 +8,8 @@ export interface WatermarkOptions {
   currMeter: number;
   unitsUsed: number;
   readerName?: string;
-  maxDimension?: number; // default 720px (Resolution downscaling)
-  quality?: number; // default 0.72
+  maxDimension?: number; // default 720px
+  quality?: number; // default 0.75
 }
 
 export interface WatermarkResult {
@@ -29,7 +29,7 @@ export async function processAndWatermarkImage(
     currMeter,
     unitsUsed,
     maxDimension = 720,
-    quality = 0.72,
+    quality = 0.75,
   } = options;
 
   let img: HTMLImageElement | HTMLCanvasElement;
@@ -54,7 +54,7 @@ export async function processAndWatermarkImage(
     });
   }
 
-  // 1. Resolution Downscaling: scale image down to maxDimension (720px) while keeping aspect ratio
+  // 1. Resolution Downscaling to 720px max dimension
   const origWidth = 'naturalWidth' in img ? (img.naturalWidth || img.width) : img.width;
   const origHeight = 'naturalHeight' in img ? (img.naturalHeight || img.height) : img.height;
 
@@ -82,6 +82,10 @@ export async function processAndWatermarkImage(
     throw new Error('Canvas 2D context not supported');
   }
 
+  // Fill background white first (for JPEG transparency safety)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
   // Draw Top Header Background (Dark Slate)
   ctx.fillStyle = '#0f172a';
   ctx.fillRect(0, 0, targetWidth, headerHeight);
@@ -90,9 +94,17 @@ export async function processAndWatermarkImage(
   ctx.fillStyle = '#0284c7';
   ctx.fillRect(0, headerHeight - 3, targetWidth, 3);
 
-  // Format timestamp: DD/MM/YYYY HH:mm
+  // Format timestamp in Asia/Bangkok timezone
   const now = new Date();
-  const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const dateStr = now.toLocaleString('th-TH', {
+    timeZone: 'Asia/Bangkok',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 
   const padX = Math.max(12, Math.round(targetWidth * 0.03));
   const fontSize1 = Math.max(12, Math.round(headerHeight * 0.28));
@@ -109,7 +121,7 @@ export async function processAndWatermarkImage(
   ctx.textAlign = 'right';
   ctx.font = `${Math.max(11, fontSize1 - 1)}px sans-serif`;
   ctx.fillStyle = '#94a3b8';
-  ctx.fillText(dateStr, targetWidth - padX, Math.round(headerHeight * 0.3));
+  ctx.fillText(`${dateStr} น.`, targetWidth - padX, Math.round(headerHeight * 0.3));
 
   // Bottom Line of Top Header (Meter numbers & Units used)
   ctx.textAlign = 'left';
@@ -124,34 +136,19 @@ export async function processAndWatermarkImage(
   // 3. Draw 100% Uncropped & Uncovered Photo below the Top Header
   ctx.drawImage(img, 0, headerHeight, targetWidth, targetHeight);
 
-  // Export as WebP with fallback to JPEG
+  // Export as JPEG (.jpg) for 100% compatibility with LINE Messaging API Image Bubbles on iOS/Android
   return new Promise((resolve, reject) => {
     canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          canvas.toBlob(
-            (jpegBlob) => {
-              if (!jpegBlob) return reject(new Error('Failed to create image blob'));
-              const dataUrl = canvas.toDataURL('image/jpeg', quality);
-              resolve({
-                blob: jpegBlob,
-                dataUrl,
-                sizeKb: Math.round(jpegBlob.size / 1024),
-              });
-            },
-            'image/jpeg',
-            quality
-          );
-          return;
-        }
-        const dataUrl = canvas.toDataURL('image/webp', quality);
+      (jpegBlob) => {
+        if (!jpegBlob) return reject(new Error('Failed to create image blob'));
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
         resolve({
-          blob,
+          blob: jpegBlob,
           dataUrl,
-          sizeKb: Math.round(blob.size / 1024),
+          sizeKb: Math.round(jpegBlob.size / 1024),
         });
       },
-      'image/webp',
+      'image/jpeg',
       quality
     );
   });

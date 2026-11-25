@@ -115,7 +115,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         type: 'รายรับ',
         category: 'รับชำระบิลค่าน้ำและค่าส่วนกลาง',
         amount: amount,
-        tx_date: new Date().toISOString().split('T')[0],
+        tx_date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }),
         room_no: room.room_no,
         payment_method: paymentMethod === 'promptpay' ? 'พร้อมเพย์' : paymentMethod === 'transfer' ? 'โอนเงิน' : 'เงินสด',
         slip_url: slipUrl,
