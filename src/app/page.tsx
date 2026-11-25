@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 2.3 - Removed meter photo attachment from LINE resident notifications
+// Version 2.4 - Daily Supabase Keep-Alive Cron (prevents 7-day inactivity pause)
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -939,7 +939,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.3
+                  ระบบบริหารนิติบุคคล v2.4
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -2716,7 +2716,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.3)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.4)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
