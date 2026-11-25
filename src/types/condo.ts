@@ -1,10 +1,11 @@
 // Types for Condo 645 Management System
-// Version 1.0
+// Version 1.4 - Added Follow-up Tracking, Verification Badge, Custom Bill Items, and LINE Auto-Reply Rules
 
 export type RoomType = 'ห้องเล็ก' | 'ห้องใหญ่' | 'small' | 'large';
 export type RoomStatus = 'ปกติ' | 'ติดต่อไม่ได้' | 'ธนาคารยึด' | 'รอขาย' | 'normal' | 'uncontactable' | 'bank_seized' | 'pending_sale';
 export type PrimaryPayer = 'เจ้าของ' | 'ผู้เช่า' | 'ทั้งคู่' | 'owner' | 'tenant' | 'both';
 export type Language = 'ไทย' | 'อังกฤษ' | 'TH' | 'EN';
+export type FollowupStatus = 'none' | 'line_notified' | 'phone_called' | 'unclear_slip';
 
 export interface Room {
   room_no: string; // e.g. "001" to "195"
@@ -40,6 +41,7 @@ export interface MeterLog {
   common_fee_amount: number;
   late_fee: number;
   special_items: number;
+  special_items_note?: string | null;
   contribution_deducted: number;
   prepaid_deducted: number;
   total_amount: number;
@@ -49,9 +51,25 @@ export interface MeterLog {
   slip_url: string | null;
   meter_photo_url: string | null;
   line_push_status: string | null;
+  is_verified?: boolean;
+  followup_status?: FollowupStatus | string | null;
+  followup_note?: string | null;
   note: string | null;
   invoice_no?: string | null;
   recorded_at: string;
+}
+
+export interface LineAutoReplyRule {
+  id: string;
+  keyword: string;
+  match_type: 'exact' | 'contains' | string;
+  reply_mode: 'custom_text' | 'system_bill' | 'system_receipt' | 'system_statement' | 'system_fund' | 'system_finance' | string;
+  reply_text: string;
+  description?: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface WalletLedgerItem {
@@ -88,6 +106,7 @@ export interface CondoConfig {
   LINE_CHANNEL_ID: string;
   LINE_CHANNEL_SECRET: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
+  LINE_GREETING_MESSAGE: string;
   [key: string]: string;
 }
 
@@ -103,6 +122,7 @@ export interface BillCalculationResult {
   wastewater_rate: number;
   wastewater_amount: number;
   common_fee: number;
+  late_fee: number;
   special_items: number;
   special_items_note: string;
   contribution_before: number;

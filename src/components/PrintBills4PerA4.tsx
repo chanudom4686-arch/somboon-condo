@@ -1,28 +1,39 @@
 'use client';
 
-// Printable 4-Bills-Per-A4 Component
-// Version 1.3 - Bilingual (TH/EN) with Dynamic PromptPay QR, Room Status Filter & Floor Filter
+// Printable 4-Bills-Per-A4 Component (Supports Both Invoices and Receipts, Single/Selected Rooms, and Zero Floor System)
+// Version 1.4
 
 import React, { useState, useMemo } from 'react';
-import { BillCalculationResult, CondoConfig, Room } from '@/types/condo';
+import { BillCalculationResult, CondoConfig, Room, MeterLog } from '@/types/condo';
+import { generateReceiptNo } from '@/utils/billing';
 
 interface PrintBillsProps {
   bills: BillCalculationResult[];
   rooms?: Room[];
+  logMap?: Record<string, MeterLog>;
   config: Partial<CondoConfig>;
   qrMap: Record<string, string>; // room_no -> qrDataUrl
+  docType?: 'invoice' | 'receipt';
+  preselectedRoomNos?: string[];
   onClose?: () => void;
 }
 
 export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
   bills,
   rooms = [],
+  logMap = {},
   config,
   qrMap,
+  docType: initialDocType = 'invoice',
+  preselectedRoomNos = [],
   onClose,
 }) => {
-  const [excludeProblemRooms, setExcludeProblemRooms] = useState<boolean>(true);
-  const [selectedFloor, setSelectedFloor] = useState<number | 'all'>('all');
+  const [docType, setDocType] = useState<'invoice' | 'receipt'>(initialDocType);
+  const [excludeProblemRooms, setExcludeProblemRooms] = useState<boolean>(
+    preselectedRoomNos.length === 0
+  );
+  const [onlySelected, setOnlySelected] = useState<boolean>(preselectedRoomNos.length > 0);
+  const [roomRange, setRoomRange] = useState<'all' | '1-50' | '51-100' | '101-150' | '151-195'>('all');
   const [roomSearch, setRoomSearch] = useState<string>('');
 
   const roomMap = useMemo(() => {
@@ -35,13 +46,21 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
 
   const filteredBills = useMemo(() => {
     return bills.filter((b) => {
+      if (onlySelected && preselectedRoomNos.length > 0) {
+        return preselectedRoomNos.includes(b.room_no);
+      }
+
       const r = roomMap[b.room_no];
       if (excludeProblemRooms && r && r.status && r.status !== 'ปกติ') {
         return false;
       }
-      if (selectedFloor !== 'all' && r && r.floor !== selectedFloor) {
-        return false;
-      }
+
+      const num = parseInt(b.room_no.replace(/[^0-9]/g, ''), 10) || 0;
+      if (roomRange === '1-50' && !(num >= 1 && num <= 50)) return false;
+      if (roomRange === '51-100' && !(num >= 51 && num <= 100)) return false;
+      if (roomRange === '101-150' && !(num >= 101 && num <= 150)) return false;
+      if (roomRange === '151-195' && !(num >= 151 && num <= 195)) return false;
+
       if (roomSearch.trim() !== '') {
         const q = roomSearch.trim();
         if (!b.room_no.includes(q) && !b.formatted_room.includes(q)) {
@@ -50,7 +69,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
       }
       return true;
     });
-  }, [bills, roomMap, excludeProblemRooms, selectedFloor, roomSearch]);
+  }, [bills, roomMap, excludeProblemRooms, onlySelected, preselectedRoomNos, roomRange, roomSearch]);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto">
@@ -58,45 +77,71 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
       <div className="sticky top-0 z-50 bg-white border-b px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm print:hidden">
         <div>
           <h2 className="font-bold text-slate-800 text-base sm:text-lg">
-            ตัวอย่างพิมพ์บิล 4 บิลต่อ 1 A4 (แสดง {filteredBills.length} ห้อง / {Math.ceil(filteredBills.length / 4)} แผ่น A4)
+            {docType === 'receipt' ? '🧾 ตัวอย่างพิมพ์ใบเสร็จรับเงิน' : '🖨️ ตัวอย่างพิมพ์ใบแจ้งหนี้'}{' '}
+            (แสดง {filteredBills.length} ห้อง / {Math.max(1, Math.ceil(filteredBills.length / 4))} แผ่น A4)
           </h2>
           <p className="text-xs text-slate-500">
-            ระบบจัดหน้า 4 บิลต่อหน้า A4 อัตโนมัติ พร้อมเส้นประสำหรับตัดแจก และ QR PromptPay
+            ระบบจัดหน้า 4 ใบต่อ 1 แผ่น A4 อัตโนมัติ พร้อมเส้นประสำหรับตัดแจก
           </p>
         </div>
 
         {/* Print Filter Controls */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <label className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-lg cursor-pointer font-medium text-slate-700">
-            <input
-              type="checkbox"
-              checked={excludeProblemRooms}
-              onChange={(e) => setExcludeProblemRooms(e.target.checked)}
-              className="rounded text-blue-600"
-            />
-            <span>ข้ามห้องมีปัญหา (ประหยัดกระดาษ)</span>
-          </label>
-
+          {/* Document Type Switcher */}
           <select
-            value={selectedFloor}
-            onChange={(e) => setSelectedFloor(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-            className="border rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700"
+            value={docType}
+            onChange={(e) => setDocType(e.target.value as 'invoice' | 'receipt')}
+            className="border-2 border-blue-500 rounded-lg px-2.5 py-1.5 bg-blue-50 font-bold text-blue-800"
           >
-            <option value="all">ทุกชั้น (1-8)</option>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((fl) => (
-              <option key={fl} value={fl}>
-                เฉพาะชั้น {fl}
-              </option>
-            ))}
+            <option value="invoice">📄 ใบแจ้งหนี้ (INVOICE)</option>
+            <option value="receipt">🧾 ใบเสร็จรับเงิน (RECEIPT)</option>
           </select>
 
-          <input
-            type="text"
-            value={roomSearch}
-            onChange={(e) => setRoomSearch(e.target.value)}
-            placeholder="ค้นหาเลขห้อง..."
-            className="border rounded-lg px-2.5 py-1.5 w-28 bg-white"
-          />
+          {preselectedRoomNos.length > 0 && (
+            <label className="flex items-center gap-1.5 bg-blue-100 text-blue-900 px-3 py-1.5 rounded-lg cursor-pointer font-bold">
+              <input
+                type="checkbox"
+                checked={onlySelected}
+                onChange={(e) => setOnlySelected(e.target.checked)}
+                className="rounded text-blue-600"
+              />
+              <span>เฉพาะห้องที่เลือก ({preselectedRoomNos.length} ห้อง)</span>
+            </label>
+          )}
+
+          {!onlySelected && (
+            <>
+              <label className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-lg cursor-pointer font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={excludeProblemRooms}
+                  onChange={(e) => setExcludeProblemRooms(e.target.checked)}
+                  className="rounded text-blue-600"
+                />
+                <span>ข้ามห้องมีปัญหา</span>
+              </label>
+
+              <select
+                value={roomRange}
+                onChange={(e) => setRoomRange(e.target.value as any)}
+                className="border rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700"
+              >
+                <option value="all">ทุกห้อง (001-195)</option>
+                <option value="1-50">ห้อง 001-050</option>
+                <option value="51-100">ห้อง 051-100</option>
+                <option value="101-150">ห้อง 101-150</option>
+                <option value="151-195">ห้อง 151-195</option>
+              </select>
+
+              <input
+                type="text"
+                value={roomSearch}
+                onChange={(e) => setRoomSearch(e.target.value)}
+                placeholder="ค้นหาเลขห้อง..."
+                className="border rounded-lg px-2.5 py-1.5 w-28 bg-white"
+              />
+            </>
+          )}
 
           <button
             onClick={() => window.print()}
@@ -159,17 +204,20 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
         `}} />
 
         {/* Chunk bills into groups of 4 for each A4 sheet */}
-        {Array.from({ length: Math.ceil(filteredBills.length / 4) }).map((_, pageIdx) => {
+        {Array.from({ length: Math.max(1, Math.ceil(filteredBills.length / 4)) }).map((_, pageIdx) => {
           const pageBills = filteredBills.slice(pageIdx * 4, pageIdx * 4 + 4);
 
           return (
             <div key={pageIdx} className="a4-page">
               {pageBills.map((bill) => {
                 const qrUrl = qrMap[bill.room_no] || '';
+                const log = logMap[bill.room_no];
                 const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)';
                 const bankName = config.BANK_NAME || 'กสิกรไทย';
                 const bankAccNo = config.BANK_ACCOUNT_NO || 'xxx-x-xxxxx-x';
                 const bankAccName = config.BANK_ACCOUNT_NAME || 'นิติบุคคลอาคารชุด สมบูรณ์คอนโดทาวน์';
+                const isReceipt = docType === 'receipt';
+                const docNo = isReceipt ? generateReceiptNo(bill.invoice_no, 1) : bill.invoice_no;
 
                 return (
                   <div
@@ -182,11 +230,13 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       <div className="flex justify-between items-start border-b pb-1.5 mb-1.5">
                         <div>
                           <div className="font-bold text-sm text-slate-900">{condoName}</div>
-                          <div className="text-[10px] text-slate-500">ใบแจ้งหนี้ประจำเดือน / INVOICE</div>
+                          <div className="text-[10px] font-bold text-slate-600">
+                            {isReceipt ? 'ใบเสร็จรับเงิน / RECEIPT' : 'ใบแจ้งหนี้ประจำเดือน / INVOICE'}
+                          </div>
                         </div>
                         <div className="text-right">
                           <div className="font-bold text-blue-700 text-sm">ห้อง {bill.formatted_room}</div>
-                          <div className="text-[10px] text-slate-500">เลขที่: {bill.invoice_no}</div>
+                          <div className="text-[10px] text-slate-500">เลขที่: {docNo}</div>
                         </div>
                       </div>
 
@@ -197,8 +247,21 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                           <span className="font-semibold">{bill.period}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500">ครบกำหนด/Due: </span>
-                          <span className="font-semibold text-red-600">{bill.due_date}</span>
+                          {isReceipt ? (
+                            <>
+                              <span className="text-slate-500">วันที่รับชำระ: </span>
+                              <span className="font-semibold text-emerald-700">
+                                {log?.paid_timestamp
+                                  ? new Date(log.paid_timestamp).toLocaleDateString('th-TH')
+                                  : new Date().toLocaleDateString('th-TH')}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-slate-500">ครบกำหนด/Due: </span>
+                              <span className="font-semibold text-red-600">{bill.due_date}</span>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -207,7 +270,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                         <div className="flex justify-between">
                           <span>เลขมิเตอร์น้ำ/Meter: <b>{bill.curr_meter}</b></span>
                           <span className="text-slate-500">(ครั้งก่อน: {bill.prev_meter})</span>
-                          <span className="font-bold text-blue-800">ใช้น้ำ: {bill.units_used} หน่วย/units</span>
+                          <span className="font-bold text-blue-800">ใช้น้ำ: {bill.units_used} หน่วย</span>
                         </div>
                       </div>
 
@@ -227,9 +290,20 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                             <td className="text-right font-medium">{bill.common_fee.toFixed(2)}</td>
                           </tr>
                           {bill.special_items !== 0 && (
-                            <tr className="border-b border-slate-100 text-amber-700">
-                              <td className="py-0.5">4. รายการพิเศษ: {bill.special_items_note || 'ซ่อมบำรุง/ปรับปรุง'}</td>
-                              <td className="text-right font-medium">{bill.special_items.toFixed(2)}</td>
+                            <tr className={`border-b border-slate-100 ${bill.special_items < 0 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                              <td className="py-0.5">
+                                4. {bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'}:{' '}
+                                {bill.special_items_note || (bill.special_items < 0 ? 'ส่วนลด' : 'ค่าใช้จ่ายอื่น')}
+                              </td>
+                              <td className="text-right font-semibold">
+                                {bill.special_items > 0 ? `+${bill.special_items.toFixed(2)}` : bill.special_items.toFixed(2)}
+                              </td>
+                            </tr>
+                          )}
+                          {(bill.late_fee || 0) > 0 && (
+                            <tr className="border-b border-slate-100 text-red-600">
+                              <td className="py-0.5">เบี้ยปรับชำระล่าช้า / Late Fee</td>
+                              <td className="text-right font-semibold">+{bill.late_fee.toFixed(2)}</td>
                             </tr>
                           )}
                           {bill.contribution_deducted > 0 && (
@@ -256,43 +330,60 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
 
                     {/* Total & Payment Section */}
                     <div>
-                      {/* Total Box */}
-                      <div className="bg-slate-900 text-white p-2 rounded flex justify-between items-center mb-2">
+                      <div className={`${isReceipt ? 'bg-emerald-900' : 'bg-slate-900'} text-white p-2 rounded flex justify-between items-center mb-2`}>
                         <div>
-                          <div className="text-[10px] text-slate-300">ยอดรวมที่ต้องชำระ</div>
-                          <div className="text-[9px] text-slate-400">TOTAL AMOUNT DUE</div>
+                          <div className="text-[10px] text-slate-200">
+                            {isReceipt ? 'ยอดรับชำระสุทธิ' : 'ยอดรวมที่ต้องชำระ'}
+                          </div>
+                          <div className="text-[9px] text-slate-300">
+                            {isReceipt ? 'TOTAL RECEIVED' : 'TOTAL AMOUNT DUE'}
+                          </div>
                         </div>
                         <div className="text-right">
-                          <span className="text-lg font-bold text-sky-400">{bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}</span>
-                          <span className="text-[10px] text-slate-300 ml-1">บาท/THB</span>
+                          <span className="text-lg font-bold text-sky-300">
+                            {bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </span>
+                          <span className="text-[10px] text-slate-200 ml-1">บาท/THB</span>
                         </div>
                       </div>
 
-                      {/* Payment QR & Details */}
-                      <div className="flex gap-2 items-center bg-slate-50 p-1.5 rounded border border-slate-200">
-                        {qrUrl ? (
-                          <img
-                            src={qrUrl}
-                            alt="PromptPay QR"
-                            className="w-16 h-16 border rounded bg-white p-0.5"
-                          />
-                        ) : (
-                          <div className="w-16 h-16 border rounded bg-slate-200 flex items-center justify-center text-[9px] text-slate-500 text-center">
-                            QR พร้อมเพย์
+                      {isReceipt ? (
+                        <div className="bg-emerald-50 border border-emerald-200 p-2 rounded text-[10px] flex justify-between items-center">
+                          <div>
+                            <div className="font-bold text-emerald-900">✅ ได้รับชำระเงินเรียบร้อยแล้ว</div>
+                            <div className="text-slate-600">ช่องทาง: {log?.paid_type || 'โอนเงิน/พร้อมเพย์'}</div>
                           </div>
-                        )}
-                        <div className="text-[10px] leading-tight flex-1">
-                          <div className="font-bold text-slate-800">สแกนจ่ายผ่านพร้อมเพย์</div>
-                          <div className="text-slate-600">หรือโอน: {bankName}</div>
-                          <div className="font-mono text-slate-900 font-semibold">{bankAccNo}</div>
-                          <div className="text-slate-500 truncate">{bankAccName}</div>
-                          {bill.contribution_after > 0 && (
-                            <div className="text-emerald-700 font-medium mt-0.5">
-                              เครดิตสมทบคงเหลือ: {bill.contribution_after.toLocaleString()} บ.
+                          <div className="text-right">
+                            <div className="text-slate-500">ผู้รับเงิน / นิติบุคคล</div>
+                            <div className="font-bold text-slate-800 mt-1">________________</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 items-center bg-slate-50 p-1.5 rounded border border-slate-200">
+                          {qrUrl ? (
+                            <img
+                              src={qrUrl}
+                              alt="PromptPay QR"
+                              className="w-16 h-16 border rounded bg-white p-0.5"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 border rounded bg-slate-200 flex items-center justify-center text-[9px] text-slate-500 text-center">
+                              QR พร้อมเพย์
                             </div>
                           )}
+                          <div className="text-[10px] leading-tight flex-1">
+                            <div className="font-bold text-slate-800">สแกนจ่ายผ่านพร้อมเพย์</div>
+                            <div className="text-slate-600">หรือโอน: {bankName}</div>
+                            <div className="font-mono text-slate-900 font-semibold">{bankAccNo}</div>
+                            <div className="text-slate-500 truncate">{bankAccName}</div>
+                            {bill.contribution_after > 0 && (
+                              <div className="text-emerald-700 font-medium mt-0.5">
+                                เครดิตสมทบคงเหลือ: {bill.contribution_after.toLocaleString()} บ.
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       {/* Notes / Footer */}
                       <div className="mt-1 text-[9px] text-slate-500 text-center border-t border-slate-100 pt-0.5">

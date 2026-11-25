@@ -1,5 +1,5 @@
 // Billing calculation and formatting utilities
-// Version 1.3 - Supports explicit previous meter from meter_logs to prevent 0-unit overwrite bug
+// Version 1.4 - Supports explicit previous meter, late fees, custom charges, and discounts
 
 import { Room, CondoConfig, BillCalculationResult } from '../types/condo';
 
@@ -30,7 +30,8 @@ export function calculateBill(
   specialItems = 0,
   specialItemsNote = '',
   outstandingBalance = 0,
-  explicitPrevMeter?: number
+  explicitPrevMeter?: number,
+  lateFee = 0
 ): BillCalculationResult {
   const prevMeter =
     explicitPrevMeter !== undefined && !Number.isNaN(Number(explicitPrevMeter))
@@ -56,23 +57,22 @@ export function calculateBill(
   const contributionAfter = contributionBefore - contributionDeducted;
   const netCommonFee = commonFee - contributionDeducted;
 
-  // 2. Subtotal before prepaid deposit
-  const subtotal = waterAmount + wastewaterAmount + netCommonFee + specialItems;
+  // 2. Subtotal before prepaid deposit (includes specialItems which can be +charge or -discount, plus lateFee)
+  const subtotal = Math.max(0, waterAmount + wastewaterAmount + netCommonFee + specialItems + lateFee);
 
   // 3. Prepaid deposit deduction (Deducts from any remaining balance)
   const prepaidBefore = Number(room.prepaid_credit) || 0;
-  const prepaidDeducted = Math.min(Math.max(0, subtotal), Math.max(0, prepaidBefore));
+  const prepaidDeducted = Math.min(subtotal, Math.max(0, prepaidBefore));
   const prepaidAfter = prepaidBefore - prepaidDeducted;
 
   // 4. Total Amount Due
-  const totalAmount = Math.max(0, subtotal - prepaidDeducted) + outstandingBalance;
+  const totalAmount = Math.max(0, subtotal - prepaidDeducted + outstandingBalance);
 
-  // Due date (e.g. 5th of next month or same month)
+  // Due date (e.g. 5th of month)
   const dueDay = Number(config.BILL_DUE_DAY) || 5;
   const [yearStr, monthStr] = period.split('-');
-  const year = parseInt(yearStr, 10);
-  const month = parseInt(monthStr, 10);
-  // Due date format: DD/MM/YYYY
+  const year = parseInt(yearStr, 10) || 2026;
+  const month = parseInt(monthStr, 10) || 11;
   const dueDate = `${String(dueDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
 
   // LINE verification code: 3 digits room + last 3 digits of phone (e.g. 005273)
@@ -92,6 +92,7 @@ export function calculateBill(
     wastewater_rate: wastewaterRate,
     wastewater_amount: wastewaterAmount,
     common_fee: commonFee,
+    late_fee: lateFee,
     special_items: specialItems,
     special_items_note: specialItemsNote,
     contribution_before: contributionBefore,

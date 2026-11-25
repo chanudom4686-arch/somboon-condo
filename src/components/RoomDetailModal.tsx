@@ -1,7 +1,7 @@
 'use client';
 
 // Room Details & Wallet (Contribution Credit & Prepaid Deposit) Modal
-// Version 1.0
+// Version 1.4 - Zero Floor Reference + Editable Starting Meter & Outstanding Balance
 
 import React, { useState, useEffect } from 'react';
 import { Room, WalletLedgerItem } from '@/types/condo';
@@ -32,6 +32,8 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   const [tenantPhone, setTenantPhone] = useState(room.tenant_phone || '');
   const [lineUserId, setLineUserId] = useState(room.line_user_id || '');
   const [language, setLanguage] = useState(room.language || 'ไทย');
+  const [latestMeter, setLatestMeter] = useState(String(room.latest_meter || 0));
+  const [outstandingBalance, setOutstandingBalance] = useState(String(room.outstanding_balance || 0));
   const [note, setNote] = useState(room.note || '');
 
   // Wallet operations
@@ -41,7 +43,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Load wallet ledger
   const loadLedger = async () => {
     const { data } = await supabase
       .from('wallet_ledger')
@@ -55,7 +56,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
     loadLedger();
   }, [room.room_no]);
 
-  // Save Room Info
   const handleSaveInfo = async () => {
     setIsSubmitting(true);
     setMessage(null);
@@ -72,6 +72,8 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
           tenant_phone: tenantPhone,
           line_user_id: lineUserId,
           language,
+          latest_meter: Number(latestMeter) || 0,
+          outstanding_balance: Number(outstandingBalance) || 0,
           note,
           updated_at: new Date().toISOString(),
         })
@@ -89,7 +91,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
     }
   };
 
-  // Add Contribution Credit
   const handleAddContribution = async () => {
     const amount = parseFloat(walletAmount);
     if (!amount || amount <= 0) {
@@ -102,7 +103,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
     try {
       const newBalance = (Number(room.contribution_credit) || 0) + amount;
 
-      // 1. Update rooms table
       const { data: updatedRoom, error: roomErr } = await supabase
         .from('rooms')
         .update({
@@ -115,7 +115,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
 
       if (roomErr) throw roomErr;
 
-      // 2. Insert into wallet_ledger
       await supabase.from('wallet_ledger').insert({
         room_no: room.room_no,
         wallet_type: 'contribution',
@@ -127,7 +126,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
         created_by: 'admin',
       });
 
-      // 3. Record in accounting as maintenance fund income
       await supabase.from('transactions').insert({
         fund_type: 'maintenance_fund',
         type: 'รายรับ',
@@ -151,7 +149,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
     }
   };
 
-  // Add Prepaid Deposit
   const handleAddPrepaid = async () => {
     const amount = parseFloat(walletAmount);
     if (!amount || amount <= 0) {
@@ -199,7 +196,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
     }
   };
 
-  // Forfeit Contribution on Sale (as instructed: ตัดยอดสมทบออกเมื่อขายห้อง)
   const handleForfeitContributionOnSale = async () => {
     const currentContrib = Number(room.contribution_credit) || 0;
     if (currentContrib <= 0) {
@@ -249,12 +245,12 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-3 overflow-y-auto">
-      <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[92vh]">
+        {/* Header (No Floor Reference) */}
         <div className="bg-slate-900 text-white px-5 py-3 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-sky-400">ห้อง {formatRoomNo(room.room_no)}</h3>
-            <p className="text-xs text-slate-400">ชั้น {room.floor} • ประเภท: {room.room_type}</p>
+            <p className="text-xs text-slate-400">ประเภท: {room.room_type} • สถานะ: {room.status}</p>
           </div>
           <button
             onClick={onClose}
@@ -294,11 +290,10 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            ⚠️ สถานะห้อง
+            ⚠️ สถานะห้อง & หนี้ค้าง
           </button>
         </div>
 
-        {/* Message Alert */}
         {message && (
           <div
             className={`mx-4 mt-3 p-2.5 rounded-lg text-xs flex justify-between items-center ${
@@ -356,7 +351,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-slate-500 block mb-0.5">เบอร์โทรศัพท์</label>
+                  <label className="text-slate-500 block mb-0.5">เบอร์โทรศัพท์ (ใช้ผูก LINE 3 ตัวท้าย)</label>
                   <input
                     type="tel"
                     value={ownerPhone}
@@ -396,14 +391,48 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
 
             <div className="border-t pt-2 mt-2 grid grid-cols-2 gap-2">
               <div>
-                <label className="text-slate-500 block mb-0.5">LINE User ID</label>
+                <label className="text-slate-500 block mb-0.5">เลขมิเตอร์น้ำล่าสุด</label>
                 <input
-                  type="text"
-                  value={lineUserId}
-                  onChange={(e) => setLineUserId(e.target.value)}
-                  placeholder="สำหรับส่งบิลผ่าน LINE"
-                  className="w-full border rounded p-1.5 font-mono"
+                  type="number"
+                  value={latestMeter}
+                  onChange={(e) => setLatestMeter(e.target.value)}
+                  className="w-full border rounded p-1.5 font-mono font-bold text-blue-700"
                 />
+              </div>
+              <div>
+                <label className="text-slate-500 block mb-0.5">ยอดหนี้ค้างชำระยกมา (บาท)</label>
+                <input
+                  type="number"
+                  step="any"
+                  value={outstandingBalance}
+                  onChange={(e) => setOutstandingBalance(e.target.value)}
+                  className="w-full border rounded p-1.5 font-mono font-bold text-red-600"
+                />
+              </div>
+            </div>
+
+            <div className="border-t pt-2 mt-2 grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-slate-500 block mb-0.5">LINE User ID</label>
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    value={lineUserId}
+                    onChange={(e) => setLineUserId(e.target.value)}
+                    placeholder="ยังไม่ได้ผูก LINE"
+                    className="w-full border rounded p-1.5 font-mono"
+                  />
+                  {lineUserId && (
+                    <button
+                      type="button"
+                      onClick={() => setLineUserId('')}
+                      className="px-2 bg-red-100 text-red-700 rounded font-bold shrink-0"
+                      title="ล้างค่าเพื่อยกเลิกผูก LINE"
+                    >
+                      ล้าง
+                    </button>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="text-slate-500 block mb-0.5">ภาษาที่ใช้สื่อสาร</label>
@@ -435,7 +464,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
               onClick={handleSaveInfo}
               className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg mt-2"
             >
-              {isSubmitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูลห้อง'}
+              {isSubmitting ? 'กำลังบันทึก...' : '💾 บันทึกข้อมูลห้อง'}
             </button>
           </div>
         )}
@@ -443,7 +472,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
         {/* Tab 2: Wallets (Contribution & Prepaid) */}
         {activeTab === 'wallet' && (
           <div className="p-4 space-y-4 overflow-y-auto flex-1 text-xs">
-            {/* Balances Card */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl">
                 <div className="text-emerald-700 font-bold mb-0.5">💰 เครดิตสมทบทุนซ่อมตึก</div>
@@ -466,7 +494,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
               </div>
             </div>
 
-            {/* Add Funds Form */}
             <div className="border rounded-xl p-3 bg-slate-50 space-y-2">
               <h4 className="font-bold text-slate-800">เพิ่มยอดเงิน / รับชำระล่วงหน้า</h4>
               <div className="grid grid-cols-2 gap-2">
@@ -512,7 +539,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
               </div>
             </div>
 
-            {/* Action on Room Sale */}
             <div className="border border-amber-200 bg-amber-50/70 p-3 rounded-xl flex items-center justify-between">
               <div>
                 <div className="font-bold text-amber-900">กรณีขายห้องชุด / โอนกรรมสิทธิ์</div>
@@ -527,7 +553,6 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
               </button>
             </div>
 
-            {/* History Table */}
             <div>
               <h4 className="font-bold text-slate-800 mb-2">ประวัติการเคลื่อนไหว</h4>
               {ledger.length === 0 ? (
@@ -587,12 +612,23 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
               </select>
             </div>
 
+            <div>
+              <label className="text-slate-700 font-bold block mb-1">ยอดหนี้ค้างชำระสะสมยกมา (บาท)</label>
+              <input
+                type="number"
+                step="any"
+                value={outstandingBalance}
+                onChange={(e) => setOutstandingBalance(e.target.value)}
+                className="w-full border rounded-lg p-2 font-mono font-bold text-red-600 text-sm"
+              />
+            </div>
+
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
               <h4 className="font-bold text-slate-800">แนวทางสำหรับห้องมีปัญหา:</h4>
               <ul className="list-disc list-inside text-slate-600 space-y-1 text-[11px]">
                 <li>ระบบจะคำนวณบิลสะสมหนี้ไว้ทุกเดือนตามปกติ เพื่อใช้เป็นหลักฐานในการคิดเงิน</li>
                 <li>ไม่เปลืองกระดาษพิมพ์บิล และไม่ส่ง LINE ให้รบกวน</li>
-                <li>เมื่อมีผู้ซื้อหรือธนาคารติดต่อขอโอนกรรมสิทธิ์ สามารถกด <b>"พิมพ์ใบแจ้งยอดหนี้ค้างทั้งหมด"</b> เพื่อเรียกเก็บเงินก้อนเดียวก่อนออกหนังสือรับรองปลอดหนี้ได้ทันที</li>
+                <li>เมื่อมีผู้ซื้อหรือธนาคารติดต่อขอโอนกรรมสิทธิ์ สามารถเรียกเก็บยอดหนี้สะสมก่อนออกหนังสือรับรองปลอดหนี้ได้ทันที</li>
               </ul>
             </div>
 
@@ -602,7 +638,7 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
               onClick={handleSaveInfo}
               className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg mt-2"
             >
-              {isSubmitting ? 'กำลังบันทึก...' : 'บันทึกสถานะห้อง'}
+              {isSubmitting ? 'กำลังบันทึก...' : '💾 บันทึกสถานะห้อง'}
             </button>
           </div>
         )}

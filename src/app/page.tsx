@@ -1,11 +1,12 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 1.3 - Admin Portal with Dedicated Meter Photo Verification & Inline Editing Workflow
+// Version 1.4 - Complete Admin Portal: Period Switcher, Zero Floor System, Per-Room Bill Editor,
+// Multi-Select Print & LINE Push, 90% KPI & Follow-up Tracker, Monthly/Annual Reports, LINE Unlink & Custom Auto-Reply Manager
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
-import { Room, MeterLog, CondoConfig } from '@/types/condo';
+import { Room, MeterLog, CondoConfig, LineAutoReplyRule } from '@/types/condo';
 import { formatRoomNo, calculateBill } from '@/utils/billing';
 import { generatePromptPayQRDataUrl } from '@/utils/promptpay';
 import { RoomDetailModal } from '@/components/RoomDetailModal';
@@ -13,50 +14,80 @@ import { PrintBills4PerA4 } from '@/components/PrintBills4PerA4';
 import { PaymentModal } from '@/components/PaymentModal';
 import { ExpenseModal } from '@/components/ExpenseModal';
 import { MeterReadingModal } from '@/components/MeterReadingModal';
+import { BillEditModal } from '@/components/BillEditModal';
+import { MonthlyReportPrintModal } from '@/components/MonthlyReportPrintModal';
 
 export default function AdminCondoApp() {
   const supabase = createClient();
 
-  // Navigation Tabs (Ordered by Real Condo Monthly Workflow: Audit Meter -> Billing -> Payments -> Rooms -> Accounting -> LINE -> Settings)
+  // Navigation Tabs
   const [activeTab, setActiveTab] = useState<'audit' | 'billing' | 'payments' | 'rooms' | 'accounting' | 'line' | 'settings'>('audit');
 
   // Core Data
   const [rooms, setRooms] = useState<Room[]>([]);
   const [config, setConfig] = useState<Partial<CondoConfig>>({});
   const [meterLogs, setMeterLogs] = useState<MeterLog[]>([]);
+  const [allYearLogs, setAllYearLogs] = useState<MeterLog[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [lineRules, setLineRules] = useState<LineAutoReplyRule[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Current active period (e.g. "2026-11")
+  // Billing Period & Historical Period Switcher
   const [period, setPeriod] = useState<string>('2026-11');
+  const [availablePeriods, setAvailablePeriods] = useState<string[]>([
+    '2026-12',
+    '2026-11',
+    '2026-10',
+    '2026-09',
+    '2026-08',
+    '2026-07',
+  ]);
 
-  // Shared Search & Filter across Tabs
+  // Shared Search & Sequential Room Range Filter (Replaces Floor System)
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterFloor, setFilterFloor] = useState<number | 'all'>('all');
-  const [auditFilter, setAuditFilter] = useState<'all' | 'has_photo' | 'anomaly' | 'read' | 'unread'>('all');
+  const [roomRange, setRoomRange] = useState<'all' | '1-50' | '51-100' | '101-150' | '151-195'>('all');
+  const [auditFilter, setAuditFilter] = useState<'all' | 'has_photo' | 'unverified' | 'verified' | 'anomaly' | 'unread'>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'unpaid' | 'paid' | 'line_notified' | 'phone_called' | 'unclear_slip' | 'has_slip'>('all');
 
-  // Inline Meter Editing Drafts in Audit Tab: room_no -> { prev: string, curr: string }
+  // Inline Meter Editing Drafts in Audit Tab
   const [inlineEdits, setInlineEdits] = useState<Record<string, { prev: string; curr: string }>>({});
   const [savingRoomNo, setSavingRoomNo] = useState<string | null>(null);
   const [savedToastRoomNo, setSavedToastRoomNo] = useState<string | null>(null);
 
-  // Lightbox Zoom Modal for comparing Photo vs Meter Reading
-  const [lightboxRoom, setLightboxRoom] = useState<Room | null>(null);
+  // Multi-Select Checkboxes on Tab 2 (Billing & LINE Push)
+  const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
+  const [isPushingLine, setIsPushingLine] = useState(false);
+  const [pushCustomModalOpen, setPushCustomModalOpen] = useState(false);
+  const [customPushText, setCustomPushText] = useState(
+    '🔔 แจ้งเตือนจากนิติบุคคล {condo_name}\nห้อง {room_no} มียอดบิลรอบ {period} จำนวน {total_due} บาท (ครบกำหนดวันที่ {due_date})\nหากชำระแล้วรบกวนส่งสลิปในแชตนี้ได้เลยครับ ขอบคุณครับ 🙏'
+  );
 
-  // Modal States
+  // Modals
+  const [lightboxRoom, setLightboxRoom] = useState<Room | null>(null);
+  const [slipViewerUrl, setSlipViewerUrl] = useState<{ roomNo: string; url: string } | null>(null);
   const [readingModalRoom, setReadingModalRoom] = useState<Room | null>(null);
+  const [billEditRoom, setBillEditRoom] = useState<Room | null>(null);
   const [detailRoom, setDetailRoom] = useState<Room | null>(null);
   const [paymentRoom, setPaymentRoom] = useState<Room | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [printDocType, setPrintDocType] = useState<'invoice' | 'receipt'>('invoice');
+  const [printTargetRooms, setPrintTargetRooms] = useState<string[]>([]);
+  const [showMonthlyReportModal, setShowMonthlyReportModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [qrMap, setQrMap] = useState<Record<string, string>>({});
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
 
-  // LINE Test Verification Input
+  // Water Reconciliation Inputs (Tab 5)
+  const [pwaUnitsStr, setPwaUnitsStr] = useState<string>('');
+  const [pwaCostStr, setPwaCostStr] = useState<string>('');
+
+  // LINE OA Auto-Reply Rule Editor (Tab 6)
+  const [editingRule, setEditingRule] = useState<Partial<LineAutoReplyRule> | null>(null);
+  const [lineGreetingMsg, setLineGreetingMsg] = useState('');
   const [testLineCode, setTestLineCode] = useState('');
   const [testLineResult, setTestLineResult] = useState<{ match: boolean; message: string } | null>(null);
 
-  // Settings form
+  // Settings form (Tab 7)
   const [waterRate, setWaterRate] = useState('35');
   const [wastewaterRate, setWastewaterRate] = useState('5');
   const [feeBig, setFeeBig] = useState('500');
@@ -66,22 +97,23 @@ export default function AdminCondoApp() {
   const [bankAccNo, setBankAccNo] = useState('');
   const [bankAccName, setBankAccName] = useState('');
   const [dueDay, setDueDay] = useState('5');
+  const [lineSecret, setLineSecret] = useState('');
+  const [lineAccessToken, setLineAccessToken] = useState('');
   const [settingsSaved, setSettingsSaved] = useState(false);
 
-  // Load all initial data
-  const fetchData = async () => {
+  // Load initial data
+  const fetchData = async (overridePeriod?: string) => {
     setLoading(true);
     try {
-      // 1. Fetch Condo Config
       const { data: configData } = await supabase.from('condo_config').select('*');
-      let activePeriod = period;
+      let activePeriod = overridePeriod || period;
       const configMap: Record<string, string> = {};
       if (configData) {
         configData.forEach((item: any) => {
           configMap[item.key] = item.value;
         });
         setConfig(configMap);
-        if (configMap.CURRENT_BILLING_PERIOD) {
+        if (!overridePeriod && configMap.CURRENT_BILLING_PERIOD) {
           activePeriod = configMap.CURRENT_BILLING_PERIOD;
           setPeriod(activePeriod);
         }
@@ -94,29 +126,68 @@ export default function AdminCondoApp() {
         setBankAccNo(configMap.BANK_ACCOUNT_NO || '');
         setBankAccName(configMap.BANK_ACCOUNT_NAME || '');
         setDueDay(configMap.BILL_DUE_DAY || '5');
+        setLineSecret(configMap.LINE_CHANNEL_SECRET || '');
+        setLineAccessToken(configMap.LINE_CHANNEL_ACCESS_TOKEN || '');
+        setLineGreetingMsg(
+          configMap.LINE_GREETING_MESSAGE ||
+            'สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name}\n\n📌 หากยังไม่ได้ผูกห้องชุด:\nโปรดพิมพ์ เลขห้อง 3 หลัก ตามด้วยเบอร์โทร 3 ตัวท้าย (เช่น 005273)\n\n📌 หากผูกห้องแล้ว พิมพ์คำว่า "เมนู" หรือ "ดูบิล" ได้เลยครับ'
+        );
       }
 
-      // 2. Fetch Rooms
+      // 2. Fetch Rooms (001 - 195)
       const { data: roomsData } = await supabase
         .from('rooms')
         .select('*')
         .order('room_no', { ascending: true });
       if (roomsData) setRooms(roomsData as Room[]);
 
-      // 3. Fetch Meter Logs for current period
+      // 3. Fetch Meter Logs for selected period
       const { data: logsData } = await supabase
         .from('meter_logs')
         .select('*')
         .eq('period', activePeriod);
       if (logsData) setMeterLogs(logsData as MeterLog[]);
 
-      // 4. Fetch Transactions
+      // 4. Fetch all historical meter logs (for Period dropdown & Annual 12-month report)
+      const { data: allLogsData } = await supabase
+        .from('meter_logs')
+        .select('*')
+        .order('period', { ascending: false });
+      if (allLogsData) {
+        setAllYearLogs(allLogsData as MeterLog[]);
+        const distinctPeriods = Array.from(
+          new Set([
+            activePeriod,
+            configMap.CURRENT_BILLING_PERIOD || '2026-11',
+            '2026-12',
+            '2026-11',
+            '2026-10',
+            '2026-09',
+            '2026-08',
+            '2026-07',
+            ...allLogsData.map((l: any) => l.period),
+          ])
+        )
+          .filter(Boolean)
+          .sort()
+          .reverse();
+        setAvailablePeriods(distinctPeriods);
+      }
+
+      // 5. Fetch Transactions
       const { data: txData } = await supabase
         .from('transactions')
         .select('*')
         .order('tx_date', { ascending: false })
-        .limit(100);
+        .limit(200);
       if (txData) setTransactions(txData);
+
+      // 6. Fetch LINE Auto-Reply Rules
+      const { data: rulesData } = await supabase
+        .from('line_auto_replies')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      if (rulesData) setLineRules(rulesData as LineAutoReplyRule[]);
     } catch (err) {
       console.error('Fetch error:', err);
     } finally {
@@ -128,6 +199,27 @@ export default function AdminCondoApp() {
     fetchData();
   }, []);
 
+  // Switch active viewing period (Historical or New Month)
+  const handleSwitchViewingPeriod = async (newPeriod: string) => {
+    setPeriod(newPeriod);
+    setInlineEdits({});
+    setSelectedRooms([]);
+    await fetchData(newPeriod);
+  };
+
+  // Set as active period for Staff /meter App
+  const handleSetAsActiveStaffPeriod = async (targetPeriod: string) => {
+    try {
+      await supabase
+        .from('condo_config')
+        .upsert({ key: 'CURRENT_BILLING_PERIOD', value: targetPeriod, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      setConfig((prev) => ({ ...prev, CURRENT_BILLING_PERIOD: targetPeriod }));
+      alert(`✅ ตั้งค่ารอบบิลปัจจุบันสำหรับแอปพนักงานจดมิเตอร์ (/meter) เป็นรอบ ${targetPeriod} เรียบร้อยแล้ว`);
+    } catch (err: any) {
+      alert('ตั้งค่ารอบบิลไม่สำเร็จ: ' + err.message);
+    }
+  };
+
   // Map of meter logs by room_no
   const logMap = useMemo(() => {
     const map: Record<string, MeterLog> = {};
@@ -137,7 +229,7 @@ export default function AdminCondoApp() {
     return map;
   }, [meterLogs]);
 
-  // Helper to check if a room reading has an anomaly that admin should double-check
+  // Anomaly helper
   const getRoomAnomaly = (room: Room, log?: MeterLog): string | null => {
     if (!log) return null;
     const prev = Number(log.prev_meter) || 0;
@@ -151,22 +243,20 @@ export default function AdminCondoApp() {
     return null;
   };
 
-  // Meter Reading Progress & Audit Stats
+  // Stats
   const readCount = useMemo(() => meterLogs.length, [meterLogs]);
-  const withPhotoCount = useMemo(
-    () => meterLogs.filter((l) => !!l.meter_photo_url).length,
-    [meterLogs]
+  const withPhotoCount = useMemo(() => meterLogs.filter((l) => !!l.meter_photo_url).length, [meterLogs]);
+  const verifiedCount = useMemo(() => meterLogs.filter((l) => !!l.is_verified).length, [meterLogs]);
+  const anomalyCount = useMemo(
+    () => rooms.filter((r) => !!getRoomAnomaly(r, logMap[r.room_no])).length,
+    [rooms, logMap]
   );
-  const anomalyCount = useMemo(() => {
-    return rooms.filter((r) => !!getRoomAnomaly(r, logMap[r.room_no])).length;
-  }, [rooms, logMap]);
-
   const readPercentage = useMemo(() => {
     if (rooms.length === 0) return 0;
     return Math.round((readCount / rooms.length) * 100);
   }, [readCount, rooms.length]);
 
-  // Filtered Rooms (Shared across tabs)
+  // Filtered Rooms (Sequential Range + Search + Tab Filters)
   const filteredRooms = useMemo(() => {
     return rooms.filter((r) => {
       const formatted = formatRoomNo(r.room_no);
@@ -177,24 +267,37 @@ export default function AdminCondoApp() {
         (r.owner_name && r.owner_name.toLowerCase().includes(searchQuery.toLowerCase())) ||
         (r.tenant_name && r.tenant_name.toLowerCase().includes(searchQuery.toLowerCase()));
 
-      const matchesFloor = filterFloor === 'all' || r.floor === filterFloor;
+      const num = parseInt(r.room_no.replace(/[^0-9]/g, ''), 10) || 0;
+      let matchesRange = true;
+      if (roomRange === '1-50') matchesRange = num >= 1 && num <= 50;
+      else if (roomRange === '51-100') matchesRange = num >= 51 && num <= 100;
+      else if (roomRange === '101-150') matchesRange = num >= 101 && num <= 150;
+      else if (roomRange === '151-195') matchesRange = num >= 151 && num <= 195;
 
       const log = logMap[r.room_no];
       const isRead = !!log;
-      let matchesAudit = true;
+      let matchesTabFilter = true;
 
       if (activeTab === 'audit') {
-        if (auditFilter === 'has_photo') matchesAudit = isRead && !!log?.meter_photo_url;
-        else if (auditFilter === 'anomaly') matchesAudit = !!getRoomAnomaly(r, log);
-        else if (auditFilter === 'read') matchesAudit = isRead;
-        else if (auditFilter === 'unread') matchesAudit = !isRead;
+        if (auditFilter === 'has_photo') matchesTabFilter = isRead && !!log?.meter_photo_url;
+        else if (auditFilter === 'unverified') matchesTabFilter = isRead && !log?.is_verified;
+        else if (auditFilter === 'verified') matchesTabFilter = isRead && !!log?.is_verified;
+        else if (auditFilter === 'anomaly') matchesTabFilter = !!getRoomAnomaly(r, log);
+        else if (auditFilter === 'unread') matchesTabFilter = !isRead;
+      } else if (activeTab === 'payments') {
+        if (paymentFilter === 'unpaid') matchesTabFilter = !log?.is_paid;
+        else if (paymentFilter === 'paid') matchesTabFilter = !!log?.is_paid;
+        else if (paymentFilter === 'line_notified') matchesTabFilter = log?.followup_status === 'line_notified';
+        else if (paymentFilter === 'phone_called') matchesTabFilter = log?.followup_status === 'phone_called';
+        else if (paymentFilter === 'unclear_slip') matchesTabFilter = log?.followup_status === 'unclear_slip';
+        else if (paymentFilter === 'has_slip') matchesTabFilter = !!log?.slip_url;
       }
 
-      return matchesSearch && matchesFloor && matchesAudit;
+      return matchesSearch && matchesRange && matchesTabFilter;
     });
-  }, [rooms, searchQuery, filterFloor, auditFilter, activeTab, logMap]);
+  }, [rooms, searchQuery, roomRange, auditFilter, paymentFilter, activeTab, logMap]);
 
-  // Calculated Bills (Fixes 0-unit bug by passing log.prev_meter explicitly!)
+  // Calculated Bills
   const calculatedBills = useMemo(() => {
     return rooms.map((room) => {
       const log = logMap[room.room_no];
@@ -206,9 +309,10 @@ export default function AdminCondoApp() {
         period,
         config,
         log ? Number(log.special_items) || 0 : 0,
-        log?.note || '',
+        log?.special_items_note || log?.note || '',
         Number(room.outstanding_balance) || 0,
-        prev
+        prev,
+        log ? Number(log.late_fee) || 0 : 0
       );
     });
   }, [rooms, logMap, period, config]);
@@ -252,25 +356,33 @@ export default function AdminCondoApp() {
     };
   }, [calculatedBills]);
 
-  // Total Contribution Pool in Condo
-  const totalContributionFund = useMemo(() => {
-    return rooms.reduce((sum, r) => sum + (Number(r.contribution_credit) || 0), 0);
-  }, [rooms]);
-
-  // Total Paid Amount for this period
+  // KPI Metrics (Per Proposal Page 5 Section 3.2)
+  const paidRoomsCount = useMemo(() => meterLogs.filter((l) => l.is_paid).length, [meterLogs]);
+  const unclearSlipCount = useMemo(
+    () => meterLogs.filter((l) => l.followup_status === 'unclear_slip').length,
+    [meterLogs]
+  );
   const totalCollected = useMemo(() => {
     return meterLogs
       .filter((l) => l.is_paid)
       .reduce((sum, l) => sum + (Number(l.total_amount) || 0), 0);
   }, [meterLogs]);
 
-  // Total LINE registered rooms
+  const collectionRatePct = useMemo(() => {
+    if (rooms.length === 0) return 0;
+    return Number(((paidRoomsCount / rooms.length) * 100).toFixed(1));
+  }, [paidRoomsCount, rooms.length]);
+
+  const totalContributionFund = useMemo(() => {
+    return rooms.reduce((sum, r) => sum + (Number(r.contribution_credit) || 0), 0);
+  }, [rooms]);
+
   const lineRegisteredCount = useMemo(() => {
     return rooms.filter((r) => !!r.line_user_id).length;
   }, [rooms]);
 
-  // Inline Save Meter Reading directly from Admin Audit Tab
-  const handleInlineMeterSave = async (room: Room, customPrev?: number, customCurr?: number) => {
+  // Inline Save & Verify Meter Reading from Tab 1
+  const handleInlineMeterSave = async (room: Room) => {
     const log = logMap[room.room_no];
     const draft = inlineEdits[room.room_no];
 
@@ -278,19 +390,9 @@ export default function AdminCondoApp() {
     const defaultCurr = log ? Number(log.curr_meter) : defaultPrev;
 
     const prevMeter =
-      customPrev !== undefined
-        ? customPrev
-        : draft?.prev !== undefined && draft.prev !== ''
-        ? Number(draft.prev)
-        : defaultPrev;
-
+      draft?.prev !== undefined && draft.prev !== '' ? Number(draft.prev) : defaultPrev;
     const currMeter =
-      customCurr !== undefined
-        ? customCurr
-        : draft?.curr !== undefined && draft.curr !== ''
-        ? Number(draft.curr)
-        : defaultCurr;
-
+      draft?.curr !== undefined && draft.curr !== '' ? Number(draft.curr) : defaultCurr;
     const unitsUsed = Math.max(0, currMeter - prevMeter);
 
     setSavingRoomNo(room.room_no);
@@ -301,9 +403,10 @@ export default function AdminCondoApp() {
         period,
         config,
         log ? Number(log.special_items) || 0 : 0,
-        log?.note || '',
+        log?.special_items_note || log?.note || '',
         Number(room.outstanding_balance) || 0,
-        prevMeter
+        prevMeter,
+        log ? Number(log.late_fee) || 0 : 0
       );
 
       const { data: savedLog, error: logErr } = await supabase
@@ -318,11 +421,15 @@ export default function AdminCondoApp() {
             water_amount: billCalc.water_amount,
             wastewater_amount: billCalc.wastewater_amount,
             common_fee_amount: billCalc.common_fee,
+            late_fee: billCalc.late_fee,
+            special_items: billCalc.special_items,
+            special_items_note: billCalc.special_items_note || null,
             contribution_deducted: billCalc.contribution_deducted,
             prepaid_deducted: billCalc.prepaid_deducted,
             total_amount: billCalc.total_amount,
             meter_photo_url: log?.meter_photo_url || null,
             note: log?.note || null,
+            is_verified: true,
             recorded_at: new Date().toISOString(),
           },
           { onConflict: 'period,room_no' }
@@ -340,7 +447,6 @@ export default function AdminCondoApp() {
         })
         .eq('room_no', room.room_no);
 
-      // Update local state immediately without full reload jump
       if (savedLog) {
         setMeterLogs((prevLogs) => {
           const exists = prevLogs.some((l) => l.room_no === room.room_no);
@@ -366,14 +472,39 @@ export default function AdminCondoApp() {
     }
   };
 
-  // Prepare and open 4-per-A4 Print Modal with dynamic PromptPay QR codes
-  const handleOpenPrint = async () => {
-    setIsGeneratingQr(true);
-    const targetPromptPay = config.PROMPTPAY_NO || '0105555555555';
-    const newQrMap: Record<string, string> = {};
+  // Verify all read logs in 1 click
+  const handleVerifyAllReadLogs = async () => {
+    try {
+      await supabase
+        .from('meter_logs')
+        .update({ is_verified: true })
+        .eq('period', period);
+      setMeterLogs((prev) => prev.map((l) => ({ ...l, is_verified: true })));
+      alert(`✅ ยืนยันความถูกต้องของค่ามิเตอร์ที่จดแล้วทั้งหมดในรอบ ${period} เรียบร้อยแล้ว`);
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาด: ' + err.message);
+    }
+  };
 
-    for (const bill of calculatedBills) {
-      if (bill.total_amount > 0) {
+  // Open Print Preview (All, Selected Batch, or Single Room; Invoice or Receipt)
+  const handleOpenPrint = async (
+    docType: 'invoice' | 'receipt' = 'invoice',
+    targetRoomNos: string[] = []
+  ) => {
+    setIsGeneratingQr(true);
+    setPrintDocType(docType);
+    setPrintTargetRooms(targetRoomNos);
+
+    const targetPromptPay = config.PROMPTPAY_NO || '0105555555555';
+    const newQrMap: Record<string, string> = { ...qrMap };
+
+    const billsToPrepare =
+      targetRoomNos.length > 0
+        ? calculatedBills.filter((b) => targetRoomNos.includes(b.room_no))
+        : calculatedBills;
+
+    for (const bill of billsToPrepare) {
+      if (bill.total_amount > 0 && !newQrMap[bill.room_no]) {
         newQrMap[bill.room_no] = await generatePromptPayQRDataUrl(
           targetPromptPay,
           bill.total_amount,
@@ -385,6 +516,200 @@ export default function AdminCondoApp() {
     setQrMap(newQrMap);
     setIsGeneratingQr(false);
     setShowPrintModal(true);
+  };
+
+  // Push LINE Bill or Custom Message to Single Room or Selected Batch
+  const handlePushLine = async (
+    targetRoomNos: string[],
+    mode: 'bill' | 'custom' = 'bill',
+    customMsg = ''
+  ) => {
+    if (targetRoomNos.length === 0) {
+      alert('กรุณาเลือกห้องที่ต้องการส่ง LINE อย่างน้อย 1 ห้อง');
+      return;
+    }
+
+    setIsPushingLine(true);
+    try {
+      const res = await fetch('/api/line/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomNos: targetRoomNos,
+          period,
+          mode,
+          customMessage: customMsg,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'ส่งข้อความ LINE ไม่สำเร็จ');
+
+      await fetchData(period);
+      setPushCustomModalOpen(false);
+      alert(
+        `📲 ส่งข้อมูลผ่าน LINE OA สำเร็จ!\n• ส่งสำเร็จ: ${data.sentCount} ห้อง\n• ข้ามห้องที่ยังไม่ผูก LINE: ${data.skippedCount} ห้อง`
+      );
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการส่ง LINE: ' + err.message);
+    } finally {
+      setIsPushingLine(false);
+    }
+  };
+
+  // Update Follow-up Status on Tab 3 (Payments & AR)
+  const handleUpdateFollowup = async (
+    room: Room,
+    status: 'none' | 'line_notified' | 'phone_called' | 'unclear_slip'
+  ) => {
+    const log = logMap[room.room_no];
+    const bill = billMap[room.room_no];
+    try {
+      const { data: savedLog, error } = await supabase
+        .from('meter_logs')
+        .upsert(
+          {
+            period,
+            room_no: room.room_no,
+            prev_meter: bill.prev_meter,
+            curr_meter: bill.curr_meter,
+            units_used: bill.units_used,
+            water_amount: bill.water_amount,
+            wastewater_amount: bill.wastewater_amount,
+            common_fee_amount: bill.common_fee,
+            late_fee: bill.late_fee,
+            special_items: bill.special_items,
+            special_items_note: bill.special_items_note || null,
+            contribution_deducted: bill.contribution_deducted,
+            prepaid_deducted: bill.prepaid_deducted,
+            total_amount: bill.total_amount,
+            followup_status: status,
+            recorded_at: log?.recorded_at || new Date().toISOString(),
+          },
+          { onConflict: 'period,room_no' }
+        )
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (savedLog) {
+        setMeterLogs((prev) => {
+          const exists = prev.some((l) => l.room_no === room.room_no);
+          return exists
+            ? prev.map((l) => (l.room_no === room.room_no ? (savedLog as MeterLog) : l))
+            : [...prev, savedLog as MeterLog];
+        });
+      }
+    } catch (err: any) {
+      alert('อัปเดตสถานะการติดตามไม่สำเร็จ: ' + err.message);
+    }
+  };
+
+  // Revert / Cancel Payment if entered by mistake
+  const handleCancelPayment = async (room: Room) => {
+    const log = logMap[room.room_no];
+    if (!log) return;
+    const ok = window.confirm(
+      `ยืนยันการยกเลิกสถานะ "ชำระแล้ว" ของห้อง ${formatRoomNo(room.room_no)} (รอบบิล ${period}) เพื่อกลับไปเป็นสถานะ "รอชำระ" ใช่หรือไม่?`
+    );
+    if (!ok) return;
+
+    try {
+      await supabase
+        .from('meter_logs')
+        .update({ is_paid: false, paid_type: null, paid_timestamp: null })
+        .eq('id', log.id);
+      await fetchData(period);
+    } catch (err: any) {
+      alert('ยกเลิกการชำระไม่สำเร็จ: ' + err.message);
+    }
+  };
+
+  // Unlink LINE OA User from a Room (For changing tenant/owner/recipient)
+  const handleUnlinkLineRoom = async (room: Room) => {
+    const ok = window.confirm(
+      `🔓 ยืนยันการยกเลิกผูกบัญชี LINE ของห้อง ${formatRoomNo(room.room_no)} (${room.owner_name || room.tenant_name || '-'})?\n\nหลังจากยกเลิกแล้ว ผู้รับคนเดิมจะไม่สามารถดูบิลห้องนี้ได้อีก และผู้รับคนใหม่สามารถพิมพ์รหัส 6 หลักเข้ามาลงทะเบียนผูกห้องแทนได้ทันที`
+    );
+    if (!ok) return;
+
+    try {
+      const { error } = await supabase
+        .from('rooms')
+        .update({ line_user_id: '', updated_at: new Date().toISOString() })
+        .eq('room_no', room.room_no);
+
+      if (error) throw error;
+      setRooms((prev) =>
+        prev.map((r) => (r.room_no === room.room_no ? { ...r, line_user_id: '' } : r))
+      );
+    } catch (err: any) {
+      alert('ยกเลิกการผูก LINE ไม่สำเร็จ: ' + err.message);
+    }
+  };
+
+  // Save or Create LINE Auto-Reply Rule
+  const handleSaveLineRule = async () => {
+    if (!editingRule || !editingRule.keyword?.trim() || !editingRule.reply_text?.trim()) {
+      alert('กรุณากรอกคีย์เวิร์ดและข้อความตอบกลับ');
+      return;
+    }
+
+    try {
+      if (editingRule.id) {
+        const { error } = await supabase
+          .from('line_auto_replies')
+          .update({
+            keyword: editingRule.keyword.trim(),
+            match_type: editingRule.match_type || 'contains',
+            reply_mode: editingRule.reply_mode || 'custom_text',
+            reply_text: editingRule.reply_text,
+            description: editingRule.description || '',
+            is_active: editingRule.is_active ?? true,
+            sort_order: Number(editingRule.sort_order) || 10,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingRule.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('line_auto_replies').insert({
+          keyword: editingRule.keyword.trim(),
+          match_type: editingRule.match_type || 'contains',
+          reply_mode: editingRule.reply_mode || 'custom_text',
+          reply_text: editingRule.reply_text,
+          description: editingRule.description || '',
+          is_active: true,
+          sort_order: lineRules.length + 1,
+        });
+        if (error) throw error;
+      }
+
+      setEditingRule(null);
+      await fetchData(period);
+    } catch (err: any) {
+      alert('บันทึกคีย์เวิร์ดไม่สำเร็จ: ' + err.message);
+    }
+  };
+
+  const handleDeleteLineRule = async (id: string) => {
+    if (!window.confirm('ยืนยันการลบคีย์เวิร์ดตอบกลับนี้?')) return;
+    await supabase.from('line_auto_replies').delete().eq('id', id);
+    await fetchData(period);
+  };
+
+  const handleToggleLineRule = async (rule: LineAutoReplyRule) => {
+    await supabase
+      .from('line_auto_replies')
+      .update({ is_active: !rule.is_active })
+      .eq('id', rule.id);
+    setLineRules((prev) =>
+      prev.map((r) => (r.id === rule.id ? { ...r, is_active: !r.is_active } : r))
+    );
+  };
+
+  // Delete Accounting Transaction
+  const handleDeleteTransaction = async (id: string) => {
+    if (!window.confirm('ยืนยันการลบรายการบัญชีนี้?')) return;
+    await supabase.from('transactions').delete().eq('id', id);
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
   };
 
   // Test LINE Verification Code
@@ -437,13 +762,15 @@ export default function AdminCondoApp() {
         { key: 'BANK_ACCOUNT_NAME', value: bankAccName },
         { key: 'BILL_DUE_DAY', value: dueDay },
         { key: 'CURRENT_BILLING_PERIOD', value: period },
+        { key: 'LINE_CHANNEL_SECRET', value: lineSecret },
+        { key: 'LINE_CHANNEL_ACCESS_TOKEN', value: lineAccessToken },
+        { key: 'LINE_GREETING_MESSAGE', value: lineGreetingMsg },
       ];
 
       for (const item of updates) {
         await supabase
           .from('condo_config')
-          .update({ value: item.value, updated_at: new Date().toISOString() })
-          .eq('key', item.key);
+          .upsert({ key: item.key, value: item.value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
       }
 
       setConfig((prev) => ({
@@ -458,6 +785,9 @@ export default function AdminCondoApp() {
         BANK_ACCOUNT_NAME: bankAccName,
         BILL_DUE_DAY: dueDay,
         CURRENT_BILLING_PERIOD: period,
+        LINE_CHANNEL_SECRET: lineSecret,
+        LINE_CHANNEL_ACCESS_TOKEN: lineAccessToken,
+        LINE_GREETING_MESSAGE: lineGreetingMsg,
       }));
 
       setSettingsSaved(true);
@@ -467,9 +797,57 @@ export default function AdminCondoApp() {
     }
   };
 
+  // Export CSV Backup
+  const handleExportCsv = () => {
+    const headers = [
+      'Room',
+      'Type',
+      'Status',
+      'Owner',
+      'Phone',
+      'PrevMeter',
+      'CurrMeter',
+      'Units',
+      'Water+Waste',
+      'CommonFee',
+      'SpecialItems',
+      'CreditDeducted',
+      'TotalDue',
+      'IsPaid',
+    ];
+    const rows = calculatedBills.map((b) => {
+      const r = rooms.find((rm) => rm.room_no === b.room_no);
+      const l = logMap[b.room_no];
+      return [
+        b.formatted_room,
+        r?.room_type || '',
+        r?.status || '',
+        `"${(r?.owner_name || '').replace(/"/g, '""')}"`,
+        r?.owner_phone || '',
+        b.prev_meter,
+        b.curr_meter,
+        b.units_used,
+        b.water_amount + b.wastewater_amount,
+        b.common_fee,
+        b.special_items,
+        b.contribution_deducted + b.prepaid_deducted,
+        b.total_amount,
+        l?.is_paid ? 'PAID' : 'UNPAID',
+      ].join(',');
+    });
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `somboon-condo-bills-${period}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800">
-      {/* Top Header */}
+      {/* Top Header with Period Switcher (View History or Open New Period) */}
       <header className="bg-slate-900 text-white sticky top-0 z-40 shadow-md">
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -480,50 +858,74 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v1.3
+                  ระบบบริหารนิติบุคคล v1.4
                 </span>
               </h1>
-              <p className="text-[11px] text-slate-400">195 ห้อง • รอบบิล {period}</p>
+              <p className="text-[11px] text-slate-400">
+                195 ห้องชุด (645/001 – 645/195) • รอบบิลพนักงานปัจจุบัน:{' '}
+                <b className="text-sky-300">{config.CURRENT_BILLING_PERIOD || period}</b>
+              </p>
             </div>
           </div>
 
-          {/* Quick Action: Open Staff Meter App */}
-          <div className="flex items-center gap-2.5">
+          {/* Right Controls: Period Switcher + Open Staff Meter App */}
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Period Switcher Dropdown (View Historical Months) */}
+            <div className="bg-slate-800 px-2.5 py-1.5 rounded-xl flex items-center gap-2 border border-slate-700">
+              <span className="text-slate-300 text-[11px]">📅 ดูรอบบิล/ย้อนหลัง:</span>
+              <select
+                value={period}
+                onChange={(e) => handleSwitchViewingPeriod(e.target.value)}
+                className="bg-slate-900 text-sky-400 font-mono font-bold px-2 py-1 rounded-lg border border-slate-600 outline-none"
+              >
+                {availablePeriods.map((p) => (
+                  <option key={p} value={p}>
+                    {p} {p === config.CURRENT_BILLING_PERIOD ? '(รอบปัจจุบัน)' : ''}
+                  </option>
+                ))}
+              </select>
+
+              {period !== config.CURRENT_BILLING_PERIOD && (
+                <button
+                  type="button"
+                  onClick={() => handleSetAsActiveStaffPeriod(period)}
+                  className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded text-[10px]"
+                  title="ตั้งให้แอปพนักงาน /meter เปลี่ยนไปจดรอบบิลนี้"
+                >
+                  ⏭️ ตั้งเป็นรอบปัจจุบัน
+                </button>
+              )}
+            </div>
+
             <a
               href="/meter"
               target="_blank"
               rel="noreferrer"
-              className="px-4 py-2 bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-700 hover:to-sky-600 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-2 transition active:scale-95 border border-sky-400/30"
-              title="เปิดหน้าจดมิเตอร์สำหรับพนักงานในหน้าต่างใหม่"
+              className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-700 hover:to-sky-600 text-white font-bold rounded-xl text-xs shadow-md flex items-center gap-1.5 transition active:scale-95 border border-sky-400/30"
             >
-              <span>📱 เปิดหน้าจดมิเตอร์ (สำหรับพนักงาน)</span>
+              <span>📱 หน้าจดมิเตอร์ (พนักงาน)</span>
               <span className="text-sky-200">↗</span>
             </a>
-
-            <div className="bg-slate-800 px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 border border-slate-700">
-              <span className="text-slate-400 text-[11px]">รอบบิล:</span>
-              <span className="font-bold text-sky-400 font-mono">{period}</span>
-            </div>
           </div>
         </div>
       </header>
 
-      {/* Main App Navigation Tabs (Ordered by Monthly Workflow) */}
+      {/* Main Navigation Tabs */}
       <nav className="bg-white border-b shadow-sm sticky top-[64px] z-30 overflow-x-auto text-xs">
         <div className="max-w-7xl mx-auto flex">
           {[
             { id: 'audit', label: '1. 🔍 ตรวจมิเตอร์ & รูปถ่าย', count: `${readCount}/195` },
-            { id: 'billing', label: '2. 🧾 ออกบิล & พิมพ์ 4/A4' },
-            { id: 'payments', label: '3. 💰 รับชำระ & ลูกหนี้' },
-            { id: 'rooms', label: '🏢 ทะเบียน 195 ห้อง & สมทบทุน', count: `${rooms.length}` },
-            { id: 'accounting', label: '📊 บัญชีกองทุน & ส่วนต่างน้ำ' },
-            { id: 'line', label: '📲 LINE OA', count: `${lineRegisteredCount}/195` },
-            { id: 'settings', label: '⚙️ ตั้งค่าระบบ' },
+            { id: 'billing', label: '2. 🧾 ออกบิล / ส่วนลด / ส่ง LINE' },
+            { id: 'payments', label: '3. 💰 รับชำระ & ติดตามหนี้ (KPI)', count: `${paidRoomsCount}/195` },
+            { id: 'rooms', label: '4. 🏢 ทะเบียน 195 ห้อง & สมทบทุน' },
+            { id: 'accounting', label: '5. 📊 บัญชี & รายงานส่งมอบนิติ' },
+            { id: 'line', label: '6. 📲 LINE OA & ตั้งค่าคีย์เวิร์ด', count: `${lineRegisteredCount}/195` },
+            { id: 'settings', label: '7. ⚙️ ตั้งค่าระบบ' },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`py-3.5 px-4 font-bold border-b-2 whitespace-nowrap transition flex items-center gap-1.5 ${
+              className={`py-3.5 px-3.5 font-bold border-b-2 whitespace-nowrap transition flex items-center gap-1.5 ${
                 activeTab === tab.id
                   ? 'border-blue-600 text-blue-600 bg-blue-50/50'
                   : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -549,74 +951,66 @@ export default function AdminCondoApp() {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400">
             <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
-            <p className="text-sm">กำลังเชื่อมต่อฐานข้อมูล Supabase...</p>
+            <p className="text-sm">กำลังโหลดข้อมูลรอบบิล {period}...</p>
           </div>
         ) : (
           <>
-            {/* Shared Search & Floor Filter Bar for Audit, Billing, Payments, and Rooms */}
+            {/* Shared Search & Sequential Room Range Filter Bar (Zero Floor System!) */}
             {['audit', 'billing', 'payments', 'rooms'].includes(activeTab) && (
-              <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 space-y-2.5 text-xs">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <div className="relative flex-1 min-w-[220px]">
-                    <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="ค้นหาเลขห้อง (เช่น 005, 087) หรือชื่อเจ้าของ/ผู้เช่า..."
-                      className="w-full pl-9 pr-8 py-2 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                    />
-                    {searchQuery && (
-                      <button
-                        onClick={() => setSearchQuery('')}
-                        className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 text-sm"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Floor Filter Pills */}
-                  <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+              <div className="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                <div className="relative flex-1 min-w-[240px]">
+                  <span className="absolute left-3 top-2.5 text-slate-400">🔍</span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="ค้นหาเลขห้อง (เช่น 005, 087) หรือชื่อเจ้าของ/ผู้เช่า..."
+                    className="w-full pl-9 pr-8 py-2 bg-slate-50 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                  />
+                  {searchQuery && (
                     <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-2 text-slate-400 hover:text-slate-600 text-sm"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Sequential Room Range Pills (001-195) */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                  {[
+                    { id: 'all', label: 'ทุกห้อง (001-195)' },
+                    { id: '1-50', label: 'ห้อง 001-050' },
+                    { id: '51-100', label: 'ห้อง 051-100' },
+                    { id: '101-150', label: 'ห้อง 101-150' },
+                    { id: '151-195', label: 'ห้อง 151-195' },
+                  ].map((rng) => (
+                    <button
+                      key={rng.id}
                       type="button"
-                      onClick={() => setFilterFloor('all')}
+                      onClick={() => setRoomRange(rng.id as any)}
                       className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition ${
-                        filterFloor === 'all'
-                          ? 'bg-slate-800 text-white'
+                        roomRange === rng.id
+                          ? 'bg-blue-600 text-white'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
-                      ทุกชั้น
+                      {rng.label}
                     </button>
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((fl) => (
-                      <button
-                        key={fl}
-                        type="button"
-                        onClick={() => setFilterFloor(fl)}
-                        className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition ${
-                          filterFloor === fl
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        ชั้น {fl}
-                      </button>
-                    ))}
-                  </div>
+                  ))}
                 </div>
               </div>
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 1: METER VERIFICATION & PHOTO AUDIT (ตรวจมิเตอร์ & รูปถ่าย)          */}
+            {/* TAB 1: METER VERIFICATION & PHOTO AUDIT                               */}
             {/* ===================================================================== */}
             {activeTab === 'audit' && (
               <div className="space-y-4">
-                {/* Workflow Summary Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                   <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
-                    <span className="text-slate-500 block">ความคืบหน้าการจดมิเตอร์</span>
+                    <span className="text-slate-500 block">ความคืบหน้าการจด ({period})</span>
                     <div className="text-lg font-bold text-blue-700 font-mono mt-0.5">
                       {readCount} / {rooms.length} ห้อง ({readPercentage}%)
                     </div>
@@ -625,14 +1019,18 @@ export default function AdminCondoApp() {
                     </span>
                   </div>
 
-                  <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
-                    <span className="text-slate-500 block">ห้องที่ยังไม่ได้จด</span>
-                    <div className="text-lg font-bold text-amber-600 font-mono mt-0.5">
-                      {rooms.length - readCount} ห้อง
+                  <div className="bg-white p-3.5 rounded-2xl border border-emerald-200 bg-emerald-50/30 shadow-xs">
+                    <span className="text-emerald-800 font-bold block">✅ นิติตรวจยืนยันแล้ว</span>
+                    <div className="text-lg font-bold text-emerald-700 font-mono mt-0.5">
+                      {verifiedCount} / {readCount} ห้องที่จด
                     </div>
-                    <span className="text-[11px] text-slate-500">
-                      กดปุ่ม &quot;จด/ถ่ายรูป&quot; ในหน้านี้ได้เลย
-                    </span>
+                    <button
+                      type="button"
+                      onClick={handleVerifyAllReadLogs}
+                      className="mt-1 text-[11px] text-blue-600 hover:underline font-bold"
+                    >
+                      ✓ กดยืนยันทั้งหมดที่จดแล้ว
+                    </button>
                   </div>
 
                   <div className="bg-white p-3.5 rounded-2xl border border-amber-200 bg-amber-50/40 shadow-xs">
@@ -647,7 +1045,7 @@ export default function AdminCondoApp() {
 
                   <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
                     <div>
-                      <span className="text-slate-500 block">หน่วยน้ำรวมทั้งตึกรอบนี้</span>
+                      <span className="text-slate-500 block">หน่วยน้ำรวมรอบนี้</span>
                       <div className="text-lg font-bold text-slate-800 font-mono mt-0.5">
                         {billingSummary.totalWaterUnits.toLocaleString()} หน่วย
                       </div>
@@ -662,15 +1060,16 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* Filter Buttons for Verification */}
+                {/* Audit Filter Buttons */}
                 <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-2xl border border-slate-200 text-xs">
                   <div className="flex flex-wrap gap-1.5">
                     {[
                       { id: 'all', label: `ทั้งหมด (${rooms.length})` },
-                      { id: 'has_photo', label: `📷 มีรูปถ่ายให้ตรวจ (${withPhotoCount})` },
+                      { id: 'has_photo', label: `📷 มีรูปถ่าย (${withPhotoCount})` },
+                      { id: 'unverified', label: `⏳ รอนิติตรวจ (${Math.max(0, readCount - verifiedCount)})` },
+                      { id: 'verified', label: `✅ ตรวจยืนยันแล้ว (${verifiedCount})` },
                       { id: 'anomaly', label: `⚠️ ควรตรวจซ้ำ (${anomalyCount})` },
-                      { id: 'read', label: `✅ จดแล้ว (${readCount})` },
-                      { id: 'unread', label: `⏳ ยังไม่จด (${rooms.length - readCount})` },
+                      { id: 'unread', label: `ยังไม่จด (${rooms.length - readCount})` },
                     ].map((f) => (
                       <button
                         key={f.id}
@@ -689,14 +1088,14 @@ export default function AdminCondoApp() {
 
                   <button
                     type="button"
-                    onClick={fetchData}
+                    onClick={() => fetchData(period)}
                     className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl flex items-center gap-1"
                   >
-                    🔄 รีเฟรชข้อมูลล่าสุดจากคนจด
+                    🔄 รีเฟรชข้อมูลล่าสุด
                   </button>
                 </div>
 
-                {/* Side-by-Side Photo vs Meter Number Verification Cards */}
+                {/* Side-by-Side Photo vs Meter Numbers Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                   {filteredRooms.length === 0 ? (
                     <div className="col-span-full bg-white p-10 text-center text-slate-400 rounded-2xl border">
@@ -706,6 +1105,7 @@ export default function AdminCondoApp() {
                     filteredRooms.map((room) => {
                       const log = logMap[room.room_no];
                       const isRead = !!log;
+                      const isVerified = !!log?.is_verified;
                       const draft = inlineEdits[room.room_no];
 
                       const prevVal =
@@ -731,23 +1131,24 @@ export default function AdminCondoApp() {
                           className={`bg-white rounded-2xl border p-3.5 shadow-xs flex flex-col sm:flex-row gap-3.5 transition ${
                             anomaly
                               ? 'border-amber-300 bg-amber-50/10'
+                              : isVerified
+                              ? 'border-emerald-400 bg-emerald-50/10'
                               : isRead
-                              ? 'border-emerald-300'
+                              ? 'border-sky-300'
                               : 'border-slate-200'
                           }`}
                         >
-                          {/* LEFT: METER PHOTO BOX (Click to Zoom Full Screen!) */}
+                          {/* LEFT: METER PHOTO BOX */}
                           <div className="w-full sm:w-44 shrink-0 flex flex-col">
                             {log?.meter_photo_url ? (
                               <div
                                 onClick={() => setLightboxRoom(room)}
                                 className="relative group aspect-4/3 sm:h-36 bg-slate-950 rounded-xl overflow-hidden border border-slate-300 cursor-pointer"
-                                title="คลิกเพื่อขยายดูรูปหน้าปัดมิเตอร์ขนาดใหญ่"
                               >
                                 <img
                                   src={log.meter_photo_url}
                                   alt={`มิเตอร์ ${room.room_no}`}
-                                  className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
+                                  className="w-full h-full object-contain bg-black group-hover:scale-105 transition duration-200"
                                 />
                                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition flex items-center justify-center">
                                   <span className="bg-black/75 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow">
@@ -782,25 +1183,30 @@ export default function AdminCondoApp() {
                           {/* RIGHT: METER NUMBERS COMPARISON & INLINE EDIT */}
                           <div className="flex-1 flex flex-col justify-between space-y-2.5 text-xs">
                             <div>
-                              {/* Room Header & Status */}
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
                                   <span className="text-base font-bold text-blue-700 font-mono">
                                     ห้อง {formatRoomNo(room.room_no)}
                                   </span>
                                   <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                                    ชั้น {room.floor} • {room.room_type}
+                                    {room.room_type}
                                   </span>
                                 </div>
 
                                 <span
                                   className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    isRead
+                                    isVerified
                                       ? 'bg-emerald-100 text-emerald-800'
+                                      : isRead
+                                      ? 'bg-sky-100 text-sky-800'
                                       : 'bg-slate-100 text-slate-500'
                                   }`}
                                 >
-                                  {isRead ? '✅ จดแล้ว' : '⏳ รอจด'}
+                                  {isVerified
+                                    ? '✅ ตรวจยืนยันแล้ว'
+                                    : isRead
+                                    ? '📷 จดแล้ว-รอตรวจ'
+                                    : '⏳ รอจด'}
                                 </span>
                               </div>
 
@@ -808,12 +1214,11 @@ export default function AdminCondoApp() {
                                 {room.owner_name || 'เจ้าของห้อง'}
                                 {log?.recorded_at && (
                                   <span className="ml-2 text-slate-400">
-                                    • เวลาจด: {new Date(log.recorded_at).toLocaleString('th-TH')}
+                                    • {new Date(log.recorded_at).toLocaleString('th-TH')}
                                   </span>
                                 )}
                               </div>
 
-                              {/* Anomaly Warning Badge if any */}
                               {anomaly && (
                                 <div className="mt-1.5 px-2.5 py-1 bg-amber-100 border border-amber-300 text-amber-900 rounded-lg text-[11px] font-bold">
                                   {anomaly}
@@ -821,7 +1226,7 @@ export default function AdminCondoApp() {
                               )}
                             </div>
 
-                            {/* Side-by-Side Number Inputs for Fast Verification & Correction */}
+                            {/* Side-by-Side Number Inputs */}
                             <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                               <div>
                                 <label className="text-[10px] text-slate-500 block mb-0.5">
@@ -875,35 +1280,38 @@ export default function AdminCondoApp() {
                               </div>
                             </div>
 
-                            {/* Bottom Save / Verify Action Row */}
                             <div className="flex items-center justify-between gap-2">
                               {log?.note ? (
                                 <span className="text-[11px] text-amber-700 truncate">
-                                  💬 หมายเหตุ: {log.note}
+                                  💬 {log.note}
                                 </span>
                               ) : (
                                 <span className="text-[11px] text-slate-400">
-                                  เทียบเลขในรูปกับช่อง &quot;เลขครั้งนี้&quot;
+                                  กดบันทึกเพื่อยืนยันความถูกต้อง
                                 </span>
                               )}
 
                               <div className="flex items-center gap-1.5 shrink-0">
                                 {savedToastRoomNo === room.room_no && (
                                   <span className="text-[11px] font-bold text-emerald-600">
-                                    ✅ บันทึกแล้ว!
+                                    ✅ ยืนยันแล้ว!
                                   </span>
                                 )}
                                 <button
                                   type="button"
                                   disabled={savingRoomNo === room.room_no}
                                   onClick={() => handleInlineMeterSave(room)}
-                                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-xl shadow-xs text-xs transition disabled:opacity-50"
+                                  className={`px-3.5 py-1.5 font-bold rounded-xl shadow-xs text-xs transition disabled:opacity-50 ${
+                                    isVerified
+                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                      : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                  }`}
                                 >
                                   {savingRoomNo === room.room_no
                                     ? 'กำลังบันทึก...'
-                                    : isRead
-                                    ? '💾 บันทึก / ยืนยันเลข'
-                                    : '💾 บันทึกเลขมิเตอร์'}
+                                    : isVerified
+                                    ? '✅ ยืนยันแล้ว (บันทึกซ้ำ)'
+                                    : '💾 บันทึก & ยืนยันเลข'}
                                 </button>
                               </div>
                             </div>
@@ -917,25 +1325,117 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 2: BILLING & 4-PER-A4 PDF                                         */}
+            {/* TAB 2: BILLING, PER-ROOM DISCOUNTS/CHARGES, MULTI-SELECT PRINT & LINE */}
             {/* ===================================================================== */}
             {activeTab === 'billing' && (
               <div className="space-y-4">
-                {/* Billing Summary Banner */}
+                {/* Billing Top Summary & Global Actions */}
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">การออกบิล ประจำรอบ {period}</h2>
+                    <h2 className="font-bold text-slate-800 text-base">
+                      ระบบออกบิล / ปรับปรุงรายการ / ส่งบิล LINE (รอบบิล {period})
+                    </h2>
                     <p className="text-xs text-slate-500">
-                      รวมใช้น้ำ {billingSummary.totalWaterUnits.toLocaleString()} หน่วย • ค่าน้ำ {billingSummary.totalWaterAmt.toLocaleString()} บ. • ค่าส่วนกลาง {billingSummary.totalCommonFee.toLocaleString()} บ.
+                      แก้ไขเพิ่มค่าใช้จ่ายหรือใส่ส่วนลดรายห้อง • ติ๊กเลือกห้องเพื่อพิมพ์บิลหรือส่งแจ้งเตือนเข้าแชต LINE OA
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
+                      type="button"
                       disabled={isGeneratingQr}
-                      onClick={handleOpenPrint}
-                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md text-xs flex items-center gap-2"
+                      onClick={() => handleOpenPrint('invoice', [])}
+                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow text-xs flex items-center gap-1.5"
                     >
-                      {isGeneratingQr ? 'กำลังสร้าง QR Code...' : '🖨️ พิมพ์ 4 บิลต่อ 1 A4 (เลือกกรองห้องได้)'}
+                      {isGeneratingQr ? 'กำลังสร้าง QR...' : '🖨️ พิมพ์ 4 บิลต่อ 1 A4 (ทั้งหมด)'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Smart Selection & Batch Action Toolbar */}
+                <div className="bg-slate-900 text-white p-3.5 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="font-bold text-sky-400 mr-1">
+                      ☑️ เลือกแล้ว {selectedRooms.length} ห้อง:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRooms(filteredRooms.map((r) => r.room_no))}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 rounded-lg font-medium"
+                    >
+                      เลือกทั้งหมดในหน้านี้
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const unpushedLineRooms = rooms
+                          .filter((r) => !!r.line_user_id && !logMap[r.room_no]?.line_push_status)
+                          .map((r) => r.room_no);
+                        setSelectedRooms(unpushedLineRooms);
+                      }}
+                      className="px-2.5 py-1 bg-emerald-900/80 hover:bg-emerald-800 text-emerald-200 border border-emerald-700 rounded-lg font-medium"
+                    >
+                      📲 เลือกห้องผูก LINE ที่ยังไม่ส่งบิล
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const paperOnlyRooms = rooms
+                          .filter((r) => !r.line_user_id && r.status === 'ปกติ')
+                          .map((r) => r.room_no);
+                        setSelectedRooms(paperOnlyRooms);
+                      }}
+                      className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-medium"
+                    >
+                      🖨️ เลือกห้องไม่มี LINE (พิมพ์กระดาษ)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const unpaidLineRooms = rooms
+                          .filter((r) => !!r.line_user_id && !logMap[r.room_no]?.is_paid)
+                          .map((r) => r.room_no);
+                        setSelectedRooms(unpaidLineRooms);
+                      }}
+                      className="px-2.5 py-1 bg-amber-900/80 hover:bg-amber-800 text-amber-200 border border-amber-700 rounded-lg font-medium"
+                    >
+                      ⏳ เลือกห้องค้างชำระที่มี LINE
+                    </button>
+                    {selectedRooms.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRooms([])}
+                        className="px-2.5 py-1 bg-red-900/80 hover:bg-red-800 text-red-200 rounded-lg font-medium"
+                      >
+                        ✕ ล้างที่เลือก
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Actions on Selected Rooms */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={selectedRooms.length === 0 || isGeneratingQr}
+                      onClick={() => handleOpenPrint('invoice', selectedRooms)}
+                      className="px-3.5 py-1.5 bg-white text-slate-900 hover:bg-slate-100 font-bold rounded-xl disabled:opacity-40"
+                    >
+                      🖨️ พิมพ์เฉพาะที่เลือก ({selectedRooms.length})
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedRooms.length === 0 || isPushingLine}
+                      onClick={() => handlePushLine(selectedRooms, 'bill')}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl disabled:opacity-40"
+                    >
+                      {isPushingLine ? 'กำลังส่ง...' : `📲 ส่งบิล LINE ที่เลือก (${selectedRooms.length})`}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={selectedRooms.length === 0 || isPushingLine}
+                      onClick={() => setPushCustomModalOpen(true)}
+                      className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl disabled:opacity-40"
+                    >
+                      🔔 ส่งข้อความแจ้งเตือนที่เลือก ({selectedRooms.length})
                     </button>
                   </div>
                 </div>
@@ -961,30 +1461,45 @@ export default function AdminCondoApp() {
                     </span>
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-slate-200 bg-blue-50/30">
-                    <span className="text-slate-500 block">ยอดรวมเรียกเก็บทั้งตึก</span>
+                    <span className="text-slate-500 block">ยอดรวมเรียกเก็บสุทธิทั้งตึก</span>
                     <span className="text-base font-bold text-blue-700 font-mono">
                       {billingSummary.totalBilled.toLocaleString()} บ.
                     </span>
                   </div>
                 </div>
 
-                {/* Bills Table Preview */}
+                {/* Bills Management Table */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-600 border-b">
                         <tr>
-                          <th className="py-2.5 px-3 text-left">ห้อง</th>
-                          <th className="py-2.5 px-3 text-center">รูปมิเตอร์</th>
-                          <th className="py-2.5 px-3 text-right">ครั้งก่อน ➔ ครั้งนี้</th>
-                          <th className="py-2.5 px-3 text-right">หน่วยน้ำ</th>
-                          <th className="py-2.5 px-3 text-right">ค่าน้ำ+บำบัด</th>
-                          <th className="py-2.5 px-3 text-right">ค่าส่วนกลาง</th>
-                          <th className="py-2.5 px-3 text-right">หักเครดิตสมทบ</th>
-                          <th className="py-2.5 px-3 text-right">หักเงินฝาก</th>
-                          <th className="py-2.5 px-3 text-right font-bold">ยอดเรียกเก็บสุทธิ</th>
-                          <th className="py-2.5 px-3 text-center">รหัส LINE</th>
-                          <th className="py-2.5 px-3 text-center">สถานะ</th>
+                          <th className="py-2.5 px-2.5 text-center w-8">
+                            <input
+                              type="checkbox"
+                              checked={
+                                filteredRooms.length > 0 &&
+                                filteredRooms.every((r) => selectedRooms.includes(r.room_no))
+                              }
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedRooms(filteredRooms.map((r) => r.room_no));
+                                } else {
+                                  setSelectedRooms([]);
+                                }
+                              }}
+                              className="rounded"
+                            />
+                          </th>
+                          <th className="py-2.5 px-2.5 text-left">ห้อง</th>
+                          <th className="py-2.5 px-2.5 text-right">มิเตอร์ (หน่วย)</th>
+                          <th className="py-2.5 px-2.5 text-right">ค่าน้ำ+บำบัด</th>
+                          <th className="py-2.5 px-2.5 text-right">ส่วนกลาง</th>
+                          <th className="py-2.5 px-2.5 text-right">เพิ่ม/ส่วนลดพิเศษ</th>
+                          <th className="py-2.5 px-2.5 text-right">หักเครดิต/เงินฝาก</th>
+                          <th className="py-2.5 px-2.5 text-right font-bold">ยอดเรียกเก็บสุทธิ</th>
+                          <th className="py-2.5 px-2.5 text-center">สถานะ LINE</th>
+                          <th className="py-2.5 px-2.5 text-center">จัดการบิล / พิมพ์ / ส่ง LINE</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y text-slate-800">
@@ -993,53 +1508,123 @@ export default function AdminCondoApp() {
                           if (!bill) return null;
                           const log = logMap[room.room_no];
                           const isPaid = log?.is_paid;
+                          const isSelected = selectedRooms.includes(room.room_no);
+                          const hasLine = !!room.line_user_id;
 
                           return (
-                            <tr key={room.room_no} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 font-bold text-blue-700 font-mono">
-                                {bill.formatted_room}
+                            <tr
+                              key={room.room_no}
+                              className={`hover:bg-slate-50 ${isSelected ? 'bg-blue-50/40' : ''}`}
+                            >
+                              <td className="py-2 px-2.5 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedRooms((prev) => [...prev, room.room_no]);
+                                    } else {
+                                      setSelectedRooms((prev) => prev.filter((id) => id !== room.room_no));
+                                    }
+                                  }}
+                                  className="rounded"
+                                />
                               </td>
-                              <td className="py-2 px-3 text-center">
-                                {log?.meter_photo_url ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setLightboxRoom(room)}
-                                    className="text-blue-600 hover:underline font-medium"
-                                  >
-                                    📷 ดูรูป
-                                  </button>
-                                ) : (
-                                  <span className="text-slate-400">-</span>
-                                )}
+                              <td className="py-2 px-2.5">
+                                <div className="font-bold text-blue-700 font-mono">{bill.formatted_room}</div>
+                                <div className="text-[10px] text-slate-500 truncate max-w-[110px]">
+                                  {room.owner_name || '-'}
+                                </div>
                               </td>
-                              <td className="py-2 px-3 text-right font-mono text-slate-600">
-                                {bill.prev_meter} ➔ <b className="text-slate-900">{bill.curr_meter}</b>
+                              <td className="py-2 px-2.5 text-right font-mono">
+                                <span className="text-slate-500 text-[11px]">
+                                  {bill.prev_meter}➔{bill.curr_meter}
+                                </span>{' '}
+                                <b className="text-slate-900">({bill.units_used})</b>
                               </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold">
-                                {bill.units_used}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono">
+                              <td className="py-2 px-2.5 text-right font-mono">
                                 {(bill.water_amount + bill.wastewater_amount).toFixed(2)}
                               </td>
-                              <td className="py-2 px-3 text-right font-mono">{bill.common_fee.toFixed(2)}</td>
-                              <td className="py-2 px-3 text-right font-mono text-emerald-600">
-                                {bill.contribution_deducted > 0 ? `-${bill.contribution_deducted.toFixed(2)}` : '-'}
+                              <td className="py-2 px-2.5 text-right font-mono">
+                                {bill.common_fee.toFixed(2)}
                               </td>
-                              <td className="py-2 px-3 text-right font-mono text-emerald-600">
-                                {bill.prepaid_deducted > 0 ? `-${bill.prepaid_deducted.toFixed(2)}` : '-'}
+                              <td className="py-2 px-2.5 text-right font-mono">
+                                {bill.special_items !== 0 || bill.late_fee > 0 ? (
+                                  <div>
+                                    <span
+                                      className={`font-bold ${
+                                        bill.special_items < 0 ? 'text-emerald-600' : 'text-amber-700'
+                                      }`}
+                                    >
+                                      {bill.special_items + bill.late_fee > 0
+                                        ? `+${(bill.special_items + bill.late_fee).toFixed(2)}`
+                                        : (bill.special_items + bill.late_fee).toFixed(2)}
+                                    </span>
+                                    {bill.special_items_note && (
+                                      <div className="text-[10px] text-slate-500 truncate max-w-[110px]">
+                                        {bill.special_items_note}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )}
                               </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-blue-700">
+                              <td className="py-2 px-2.5 text-right font-mono text-emerald-600">
+                                {bill.contribution_deducted + bill.prepaid_deducted > 0
+                                  ? `-${(bill.contribution_deducted + bill.prepaid_deducted).toFixed(2)}`
+                                  : '-'}
+                              </td>
+                              <td className="py-2 px-2.5 text-right font-mono font-bold text-blue-700">
                                 {bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
                               </td>
-                              <td className="py-2 px-3 text-center font-mono text-[11px] text-emerald-700 font-bold bg-emerald-50/50">
-                                {bill.line_reg_code}
+                              <td className="py-2 px-2.5 text-center">
+                                {log?.line_push_status ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                    ✅ {log.line_push_status}
+                                  </span>
+                                ) : hasLine ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-bold">
+                                    📲 พร้อมส่ง LINE
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400">
+                                    รหัส: <b className="font-mono">{bill.line_reg_code}</b>
+                                  </span>
+                                )}
                               </td>
-                              <td className="py-2 px-3 text-center">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] ${
-                                  isPaid ? 'bg-emerald-100 text-emerald-800 font-bold' : 'bg-amber-100 text-amber-800'
-                                }`}>
-                                  {isPaid ? 'ชำระแล้ว' : 'ยังไม่ชำระ'}
-                                </span>
+                              <td className="py-2 px-2.5 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setBillEditRoom(room)}
+                                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg font-bold text-[11px]"
+                                    title="แก้ไขบิล / เพิ่มค่าใช้จ่าย / ใส่ส่วนลด"
+                                  >
+                                    ✏️ แก้บิล
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleOpenPrint(isPaid ? 'receipt' : 'invoice', [room.room_no])
+                                    }
+                                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px]"
+                                    title="พิมพ์บิลหรือใบเสร็จเฉพาะห้องนี้"
+                                  >
+                                    {isPaid ? '🧾 ใบเสร็จ' : '🖨️ พิมพ์'}
+                                  </button>
+                                  {hasLine && (
+                                    <button
+                                      type="button"
+                                      disabled={isPushingLine}
+                                      onClick={() => handlePushLine([room.room_no], 'bill')}
+                                      className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px]"
+                                      title="ส่งบิลเข้าแชต LINE ห้องนี้ทันที"
+                                    >
+                                      📲 ส่ง LINE
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1052,65 +1637,249 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 3: PAYMENTS & AR                                                  */}
+            {/* TAB 3: PAYMENTS, FOLLOW-UP TRACKER & 90% KPI DASHBOARD                */}
             {/* ===================================================================== */}
             {activeTab === 'payments' && (
               <div className="space-y-4">
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
-                  <div>
-                    <h2 className="font-bold text-slate-800 text-base">ระบบรับชำระเงิน & ติดตามหนี้ค้าง</h2>
-                    <p className="text-xs text-slate-500">
-                      ชำระแล้ว {totalCollected.toLocaleString()} บ. จากยอดเรียกเก็บ {billingSummary.totalBilled.toLocaleString()} บ.
-                    </p>
+                {/* KPI Cards Banner (Per Proposal Page 5 Section 3.2) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-slate-500 font-bold">KPI 1: อัตราการจัดเก็บรายเดือน</span>
+                      <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">
+                        เป้าหมาย ≥ 90%
+                      </span>
+                    </div>
+                    <div className="text-xl font-bold text-blue-700 font-mono">
+                      {collectionRatePct}% ({paidRoomsCount} / {rooms.length} ห้อง)
+                    </div>
+                    <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden mt-2">
+                      <div
+                        className={`h-full rounded-full ${
+                          collectionRatePct >= 90 ? 'bg-emerald-500' : 'bg-blue-600'
+                        }`}
+                        style={{ width: `${Math.min(100, collectionRatePct)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <span className="text-slate-500 font-bold block mb-1">ยอดเงินที่รับชำระแล้วรอบ {period}</span>
+                    <div className="text-xl font-bold text-emerald-700 font-mono">
+                      {totalCollected.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+                    </div>
+                    <span className="text-[11px] text-slate-500 mt-1 block">
+                      จากยอดเรียกเก็บทั้งหมด {billingSummary.totalBilled.toLocaleString()} บาท
+                    </span>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-slate-500 font-bold">KPI 2: สถานะ &quot;ไม่แน่ใจ/หลักฐานไม่ชัด&quot;</span>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                        เป้าหมาย 0%
+                      </span>
+                    </div>
+                    <div className={`text-xl font-bold font-mono ${unclearSlipCount === 0 ? 'text-emerald-700' : 'text-amber-600'}`}>
+                      {unclearSlipCount} ห้อง ({rooms.length > 0 ? ((unclearSlipCount / rooms.length) * 100).toFixed(1) : '0'}%)
+                    </div>
+                    <span className="text-[11px] text-slate-500 mt-1 block">
+                      สลิปทั้งหมดเก็บใน Supabase Storage ย้อนหลังครบ
+                    </span>
                   </div>
                 </div>
 
+                {/* Follow-up Status Filter Buttons */}
+                <div className="bg-white p-3 rounded-2xl border border-slate-200 flex flex-wrap gap-1.5 text-xs">
+                  {[
+                    { id: 'all', label: `ทั้งหมด (${rooms.length})` },
+                    { id: 'unpaid', label: `⏳ รอชำระ (${rooms.length - paidRoomsCount})` },
+                    { id: 'paid', label: `✅ ชำระแล้ว (${paidRoomsCount})` },
+                    { id: 'line_notified', label: `💬 แจ้งเตือนในแชต LINE แล้ว` },
+                    { id: 'phone_called', label: `📞 โทรติดตามแล้ว` },
+                    { id: 'unclear_slip', label: `❓ ไม่แน่ใจ / หลักฐานไม่ชัดเจน (${unclearSlipCount})` },
+                    { id: 'has_slip', label: `🖼️ มีรูปสลิปแนบ` },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setPaymentFilter(f.id as any)}
+                      className={`px-3 py-1.5 rounded-xl font-bold transition ${
+                        paymentFilter === f.id
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Rooms Payment & Follow-up Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {filteredRooms.map((room) => {
                     const log = logMap[room.room_no];
                     const bill = billMap[room.room_no];
                     const isPaid = log?.is_paid;
                     const dueAmt = bill ? bill.total_amount : Number(room.outstanding_balance) || 0;
+                    const fStatus = log?.followup_status || 'none';
 
                     return (
                       <div
                         key={room.room_no}
-                        className={`p-3 rounded-xl border bg-white flex flex-col justify-between ${
-                          isPaid ? 'border-emerald-200' : 'border-slate-200'
+                        className={`p-3.5 rounded-2xl border bg-white flex flex-col justify-between shadow-xs ${
+                          isPaid
+                            ? 'border-emerald-300 bg-emerald-50/10'
+                            : fStatus === 'unclear_slip'
+                            ? 'border-amber-400 bg-amber-50/20'
+                            : 'border-slate-200'
                         }`}
                       >
                         <div>
-                          <div className="flex justify-between items-start mb-1.5">
-                            <span className="font-bold text-sm text-blue-700">{formatRoomNo(room.room_no)}</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                            }`}>
-                              {isPaid ? 'ชำระแล้ว' : 'รอชำระ'}
+                          <div className="flex justify-between items-start mb-1">
+                            <div>
+                              <span className="font-bold text-sm text-blue-700 font-mono">
+                                ห้อง {formatRoomNo(room.room_no)}
+                              </span>
+                              <span className="text-[11px] text-slate-500 block">
+                                {room.owner_name || 'เจ้าของห้อง'} ({room.owner_phone || '-'})
+                              </span>
+                            </div>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                isPaid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {isPaid ? '✅ ชำระแล้ว' : '⏳ รอชำระ'}
                             </span>
                           </div>
-                          <div className="text-xs text-slate-500 mb-2">
-                            {room.owner_name || 'เจ้าของห้อง'} (ใช้น้ำ {bill?.units_used || 0} หน่วย)
-                          </div>
-                          <div className="bg-slate-50 p-2 rounded-lg flex justify-between items-center text-xs">
+
+                          <div className="bg-slate-50 p-2 rounded-xl flex justify-between items-center text-xs my-2 border border-slate-100">
                             <span className="text-slate-500">ยอดสุทธิรอบนี้:</span>
-                            <span className="font-bold font-mono text-slate-800">
+                            <span className="font-bold font-mono text-slate-900 text-sm">
                               {dueAmt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
                             </span>
                           </div>
+
+                          {/* Follow-up Status Pills (Per Proposal Page 3: LINE Chat -> Phone Call -> Unclear Evidence) */}
+                          {!isPaid && (
+                            <div className="space-y-1.5 mb-2">
+                              <span className="text-[10px] text-slate-400 block">
+                                สถานะการติดตามทวงถาม:
+                              </span>
+                              <div className="grid grid-cols-3 gap-1 text-[10px]">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateFollowup(
+                                      room,
+                                      fStatus === 'line_notified' ? 'none' : 'line_notified'
+                                    )
+                                  }
+                                  className={`py-1 px-1 rounded-lg border font-bold ${
+                                    fStatus === 'line_notified'
+                                      ? 'bg-sky-600 text-white border-sky-600'
+                                      : 'bg-white text-slate-600 border-slate-200'
+                                  }`}
+                                >
+                                  💬 ทวง LINE
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateFollowup(
+                                      room,
+                                      fStatus === 'phone_called' ? 'none' : 'phone_called'
+                                    )
+                                  }
+                                  className={`py-1 px-1 rounded-lg border font-bold ${
+                                    fStatus === 'phone_called'
+                                      ? 'bg-purple-600 text-white border-purple-600'
+                                      : 'bg-white text-slate-600 border-slate-200'
+                                  }`}
+                                >
+                                  📞 โทรแล้ว
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateFollowup(
+                                      room,
+                                      fStatus === 'unclear_slip' ? 'none' : 'unclear_slip'
+                                    )
+                                  }
+                                  className={`py-1 px-1 rounded-lg border font-bold ${
+                                    fStatus === 'unclear_slip'
+                                      ? 'bg-amber-600 text-white border-amber-600'
+                                      : 'bg-white text-slate-600 border-slate-200'
+                                  }`}
+                                >
+                                  ❓ ไม่ชัดเจน
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
-                        <div className="pt-2 mt-2 border-t flex gap-1">
+                        {/* Bottom Action Buttons */}
+                        <div className="pt-2 border-t flex flex-wrap gap-1.5">
                           {!isPaid ? (
-                            <button
-                              onClick={() => setPaymentRoom(room)}
-                              className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs"
-                            >
-                              💵 บันทึกรับชำระ
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setPaymentRoom(room)}
+                                className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs"
+                              >
+                                💵 บันทึกรับชำระ
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setBillEditRoom(room)}
+                                className="px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs"
+                                title="แก้ไขบิล / ส่วนลด"
+                              >
+                                ✏️
+                              </button>
+                            </>
                           ) : (
-                            <span className="w-full py-1.5 text-center text-[11px] text-emerald-700 font-medium">
-                              ชำระแล้วผ่าน {log?.paid_type || 'พร้อมเพย์'}
-                            </span>
+                            <div className="w-full space-y-1.5">
+                              <div className="text-[11px] text-emerald-700 font-medium text-center">
+                                ชำระผ่าน {log?.paid_type || 'พร้อมเพย์'}{' '}
+                                {log?.paid_timestamp &&
+                                  `(${new Date(log.paid_timestamp).toLocaleDateString('th-TH')})`}
+                              </div>
+                              <div className="flex gap-1 text-[11px]">
+                                {log?.slip_url && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSlipViewerUrl({
+                                        roomNo: formatRoomNo(room.room_no),
+                                        url: log.slip_url!,
+                                      })
+                                    }
+                                    className="flex-1 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-800 font-bold rounded-lg"
+                                  >
+                                    🖼️ ดูสลิป
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPrint('receipt', [room.room_no])}
+                                  className="flex-1 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold rounded-lg"
+                                >
+                                  🧾 พิมพ์ใบเสร็จ
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelPayment(room)}
+                                  className="px-2 py-1.5 bg-slate-100 hover:bg-red-100 text-slate-600 hover:text-red-700 font-bold rounded-lg"
+                                  title="ยกเลิกสถานะชำระแล้ว (กรณีคีย์ผิด)"
+                                >
+                                  ↩️
+                                </button>
+                              </div>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1121,98 +1890,105 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 4: ROOMS & WALLETS                                                */}
+            {/* TAB 4: ROOMS & WALLETS (Sequential 001 - 195, Zero Floor Column)      */}
             {/* ===================================================================== */}
             {activeTab === 'rooms' && (
               <div className="space-y-4">
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap gap-4 justify-between items-center">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ทะเบียนห้องชุด & กระเป๋าเงิน (195 ห้อง)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">
+                      ทะเบียนห้องชุด 645/001 – 645/195 & กระเป๋าเงินสมทบทุน
+                    </h2>
                     <p className="text-xs text-slate-500">
-                      จัดการเจ้าของ/ผู้เช่า, เครดิตสมทบทุนซ่อมตึก, เงินฝากล่วงหน้า, และห้องมีปัญหา
+                      จัดการชื่อ-เบอร์โทร, เลขมิเตอร์ตั้งต้น, ยอดหนี้ค้างยกมา, เครดิตสมทบทุนซ่อมตึก และเงินฝากล่วงหน้า
                     </p>
                   </div>
                   <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
-                    <div className="text-[11px] text-emerald-700">ยอดกองทุนสมทบรวม</div>
+                    <div className="text-[11px] text-emerald-700">ยอดเครดิตสมทบทุนคงเหลือรวม</div>
                     <div className="text-base font-bold text-emerald-900 font-mono">
                       {totalContributionFund.toLocaleString()} บาท
                     </div>
                   </div>
                 </div>
 
-                {/* Rooms Table */}
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-600 border-b">
                         <tr>
                           <th className="py-2.5 px-3 text-left">เลขห้อง</th>
-                          <th className="py-2.5 px-3 text-left">ชั้น</th>
                           <th className="py-2.5 px-3 text-left">ประเภทห้อง</th>
                           <th className="py-2.5 px-3 text-left">สถานะ</th>
                           <th className="py-2.5 px-3 text-left">เจ้าของ / ผู้เช่า</th>
-                          <th className="py-2.5 px-3 text-center">รหัส LINE</th>
+                          <th className="py-2.5 px-3 text-right">มิเตอร์ล่าสุด</th>
+                          <th className="py-2.5 px-3 text-right">หนี้ค้างยกมา</th>
                           <th className="py-2.5 px-3 text-right">💰 เครดิตสมทบทุน</th>
                           <th className="py-2.5 px-3 text-right">💵 เงินฝากล่วงหน้า</th>
                           <th className="py-2.5 px-3 text-center">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y text-slate-800">
-                        {filteredRooms.map((room) => {
-                          const rawPhone = (room.owner_phone || room.tenant_phone || '').replace(/[^0-9]/g, '');
-                          const phoneSuffix = rawPhone.length >= 3 ? rawPhone.slice(-3) : '';
-                          const regCode = phoneSuffix ? `${room.room_no}${phoneSuffix}` : '-';
-
-                          return (
-                            <tr key={room.room_no} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 font-bold text-blue-700 font-mono">
-                                {formatRoomNo(room.room_no)}
-                              </td>
-                              <td className="py-2 px-3 text-slate-500">ชั้น {room.floor}</td>
-                              <td className="py-2 px-3">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] ${
-                                  room.room_type === 'ห้องใหญ่' ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'
-                                }`}>
-                                  {room.room_type} ({room.room_type === 'ห้องใหญ่' ? '500' : '300'} บ.)
-                                </span>
-                              </td>
-                              <td className="py-2 px-3">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] ${
-                                  room.status === 'ปกติ' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800 font-bold'
-                                }`}>
-                                  {room.status}
-                                </span>
-                              </td>
-                              <td className="py-2 px-3">
-                                <div className="font-medium">{room.owner_name || '-'}</div>
-                                {room.tenant_name && (
-                                  <div className="text-[10px] text-slate-500">ผู้เช่า: {room.tenant_name}</div>
-                                )}
-                              </td>
-                              <td className="py-2 px-3 text-center font-mono font-bold text-emerald-800 bg-emerald-50/50">
-                                {regCode}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
-                                {(Number(room.contribution_credit) || 0) > 0
-                                  ? `${(Number(room.contribution_credit) || 0).toLocaleString()} บ.`
-                                  : '-'}
-                              </td>
-                              <td className="py-2 px-3 text-right font-mono font-bold text-sky-700">
-                                {(Number(room.prepaid_credit) || 0) > 0
-                                  ? `${(Number(room.prepaid_credit) || 0).toLocaleString()} บ.`
-                                  : '-'}
-                              </td>
-                              <td className="py-2 px-3 text-center">
-                                <button
-                                  onClick={() => setDetailRoom(room)}
-                                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium"
-                                >
-                                  แก้ไข / เครดิต
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {filteredRooms.map((room) => (
+                          <tr key={room.room_no} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-bold text-blue-700 font-mono">
+                              {formatRoomNo(room.room_no)}
+                            </td>
+                            <td className="py-2 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] ${
+                                  room.room_type === 'ห้องใหญ่'
+                                    ? 'bg-purple-100 text-purple-800'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {room.room_type} ({room.room_type === 'ห้องใหญ่' ? feeBig : feeSmall} บ.)
+                              </span>
+                            </td>
+                            <td className="py-2 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] ${
+                                  room.status === 'ปกติ'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-amber-100 text-amber-800 font-bold'
+                                }`}
+                              >
+                                {room.status}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3">
+                              <div className="font-medium">{room.owner_name || '-'}</div>
+                              {room.tenant_name && (
+                                <div className="text-[10px] text-slate-500">ผู้เช่า: {room.tenant_name}</div>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-slate-700">
+                              {room.latest_meter || 0}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-red-600">
+                              {(Number(room.outstanding_balance) || 0) > 0
+                                ? `${Number(room.outstanding_balance).toLocaleString()} บ.`
+                                : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
+                              {(Number(room.contribution_credit) || 0) > 0
+                                ? `${(Number(room.contribution_credit) || 0).toLocaleString()} บ.`
+                                : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-sky-700">
+                              {(Number(room.prepaid_credit) || 0) > 0
+                                ? `${(Number(room.prepaid_credit) || 0).toLocaleString()} บ.`
+                                : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                onClick={() => setDetailRoom(room)}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
+                              >
+                                แก้ไข / เครดิต
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -1221,47 +1997,108 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 5: ACCOUNTING & WATER RECONCILIATION                              */}
+            {/* TAB 5: ACCOUNTING, WATER RECONCILIATION & MONTHLY/ANNUAL REPORTS      */}
             {/* ===================================================================== */}
             {activeTab === 'accounting' && (
               <div className="space-y-4">
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap gap-3 items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">บัญชีรายรับ-รายจ่าย & กองทุนคอนโด</h2>
-                    <p className="text-xs text-slate-500">แยกบัญชีกองทุนดำเนินงาน และกองทุนสมทบซ่อมบำรุงตึก</p>
+                    <h2 className="font-bold text-slate-800 text-base">
+                      บัญชีรายรับ-รายจ่าย & รายงานส่งมอบนิติบุคคล (รายเดือน / รายปี)
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      แยกบัญชีกองทุนดำเนินงาน และกองทุนสมทบซ่อมบำรุงตึก พร้อมพิมพ์รายงานติดประกาศ
+                    </p>
                   </div>
-                  <button
-                    onClick={() => setShowExpenseModal(true)}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow text-xs flex items-center gap-1.5"
-                  >
-                    ＋ บันทึกรายจ่าย
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowMonthlyReportModal(true)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow text-xs flex items-center gap-1.5"
+                    >
+                      🖨️ พิมพ์รายงานติดประกาศรายเดือน & รายงานรายปี
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowExpenseModal(true)}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow text-xs flex items-center gap-1.5"
+                    >
+                      ＋ บันทึกรายจ่าย
+                    </button>
+                  </div>
                 </div>
 
-                {/* Water Reconciliation Card */}
-                <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-2xl">
-                  <h3 className="font-bold text-blue-900 text-sm mb-1">💧 รายงานส่วนต่างค่าน้ำประปา</h3>
-                  <p className="text-xs text-blue-700 mb-3">
-                    ตรวจสอบการรั่วไหลของน้ำ โดยเทียบหน่วยรวมที่เก็บจาก 195 ห้องกับบิลการประปา
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-blue-100 text-xs">
+                {/* Water Reconciliation Card with PWA Bill Comparison */}
+                <div className="bg-blue-50/70 border border-blue-200 p-4 rounded-2xl space-y-3 text-xs">
+                  <div>
+                    <h3 className="font-bold text-blue-900 text-sm">
+                      💧 กระทบยอดส่วนต่างค่าน้ำประปา (เทียบ 195 ห้อง กับ บิลการประปานครหลวง)
+                    </h3>
+                    <p className="text-blue-700">
+                      กรอกหน่วยน้ำและยอดเงินจากบิลการประปา เพื่อตรวจสอบน้ำสูญเสียในท่อส่วนกลาง
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-white p-3.5 rounded-xl border border-blue-100">
                     <div>
-                      <span className="text-slate-500 block">หน่วยน้ำที่เก็บได้จาก 195 ห้อง</span>
+                      <span className="text-slate-500 block">หน่วยน้ำรวมที่เก็บจาก 195 ห้อง</span>
                       <span className="text-lg font-bold text-blue-800 font-mono">
                         {billingSummary.totalWaterUnits.toLocaleString()} หน่วย
                       </span>
-                    </div>
-                    <div>
-                      <span className="text-slate-500 block">ยอดค่าน้ำที่เรียกเก็บ (35 บ./หน่วย)</span>
-                      <span className="text-lg font-bold text-slate-800 font-mono">
-                        {billingSummary.totalWaterAmt.toLocaleString()} บ.
+                      <span className="text-[11px] text-slate-500 block">
+                        เรียกเก็บค่าน้ำ+บำบัด:{' '}
+                        {(billingSummary.totalWaterAmt + billingSummary.totalWastewaterAmt).toLocaleString()} บ.
                       </span>
                     </div>
+
                     <div>
-                      <span className="text-slate-500 block">ค่าบำบัดน้ำเสียที่เรียกเก็บ (5 บ./หน่วย)</span>
-                      <span className="text-lg font-bold text-slate-800 font-mono">
-                        {billingSummary.totalWastewaterAmt.toLocaleString()} บ.
-                      </span>
+                      <label className="text-slate-700 font-bold block mb-1">
+                        หน่วยน้ำตามบิลการประปาจริง
+                      </label>
+                      <input
+                        type="number"
+                        value={pwaUnitsStr}
+                        onChange={(e) => setPwaUnitsStr(e.target.value)}
+                        placeholder="กรอกหน่วยบิลประปา..."
+                        className="w-full border rounded-lg p-1.5 font-mono font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-slate-700 font-bold block mb-1">
+                        ยอดเงินตามบิลการประปา (บาท)
+                      </label>
+                      <input
+                        type="number"
+                        value={pwaCostStr}
+                        onChange={(e) => setPwaCostStr(e.target.value)}
+                        placeholder="กรอกยอดเงินบิลประปา..."
+                        className="w-full border rounded-lg p-1.5 font-mono font-bold"
+                      />
+                    </div>
+
+                    <div className="bg-slate-50 p-2 rounded-lg border">
+                      <span className="text-slate-500 block">ผลต่างหน่วยน้ำ / ส่วนต่างเงิน</span>
+                      {pwaUnitsStr ? (
+                        <>
+                          <div className="font-bold font-mono text-sm text-slate-800">
+                            ต่างกัน: {billingSummary.totalWaterUnits - Number(pwaUnitsStr)} หน่วย
+                          </div>
+                          {pwaCostStr && (
+                            <div className="text-[11px] font-bold text-emerald-700">
+                              ส่วนต่างเงิน:{' '}
+                              {(
+                                billingSummary.totalWaterAmt +
+                                billingSummary.totalWastewaterAmt -
+                                Number(pwaCostStr)
+                              ).toLocaleString()}{' '}
+                              บ.
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-400 text-[11px]">กรอกข้อมูลบิลประปาเพื่อคำนวณ</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1270,7 +2107,7 @@ export default function AdminCondoApp() {
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="p-3 border-b flex justify-between items-center">
                     <h4 className="font-bold text-slate-800 text-xs">รายการรับ-จ่ายล่าสุด</h4>
-                    <span className="text-[11px] text-slate-500">แสดง 100 รายการล่าสุด</span>
+                    <span className="text-[11px] text-slate-500">แสดง 200 รายการล่าสุด</span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
@@ -1282,6 +2119,7 @@ export default function AdminCondoApp() {
                           <th className="py-2 px-3 text-left">หมวดหมู่ / รายละเอียด</th>
                           <th className="py-2 px-3 text-right">จำนวนเงิน</th>
                           <th className="py-2 px-3 text-left">ช่องทาง</th>
+                          <th className="py-2 px-3 text-center">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y text-slate-800">
@@ -1289,16 +2127,22 @@ export default function AdminCondoApp() {
                           <tr key={tx.id} className="hover:bg-slate-50">
                             <td className="py-2 px-3 text-slate-500">{tx.tx_date}</td>
                             <td className="py-2 px-3">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] ${
-                                tx.fund_type === 'maintenance_fund'
-                                  ? 'bg-emerald-100 text-emerald-800 font-bold'
-                                  : 'bg-slate-100 text-slate-700'
-                              }`}>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] ${
+                                  tx.fund_type === 'maintenance_fund'
+                                    ? 'bg-emerald-100 text-emerald-800 font-bold'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
                                 {tx.fund_type === 'maintenance_fund' ? 'ซ่อมบำรุงตึก' : 'ดำเนินงาน'}
                               </span>
                             </td>
                             <td className="py-2 px-3">
-                              <span className={`font-bold ${tx.type === 'รายรับ' ? 'text-emerald-600' : 'text-red-600'}`}>
+                              <span
+                                className={`font-bold ${
+                                  tx.type === 'รายรับ' ? 'text-emerald-600' : 'text-red-600'
+                                }`}
+                              >
                                 {tx.type}
                               </span>
                             </td>
@@ -1306,12 +2150,25 @@ export default function AdminCondoApp() {
                               <div className="font-medium">{tx.category}</div>
                               <div className="text-[10px] text-slate-500">{tx.note}</div>
                             </td>
-                            <td className={`py-2 px-3 text-right font-mono font-bold ${
-                              tx.type === 'รายรับ' ? 'text-emerald-600' : 'text-red-600'
-                            }`}>
-                              {tx.type === 'รายรับ' ? `+${Number(tx.amount).toLocaleString()}` : `-${Number(tx.amount).toLocaleString()}`}
+                            <td
+                              className={`py-2 px-3 text-right font-mono font-bold ${
+                                tx.type === 'รายรับ' ? 'text-emerald-600' : 'text-red-600'
+                              }`}
+                            >
+                              {tx.type === 'รายรับ'
+                                ? `+${Number(tx.amount).toLocaleString()}`
+                                : `-${Number(tx.amount).toLocaleString()}`}
                             </td>
                             <td className="py-2 px-3 text-slate-500">{tx.payment_method || '-'}</td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTransaction(tx.id)}
+                                className="text-red-500 hover:text-red-700 font-bold text-[11px]"
+                              >
+                                ลบ
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1322,72 +2179,310 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 6: LINE OA & REGISTRATION                                         */}
+            {/* TAB 6: LINE OA, UNLINK REGISTRATION & CUSTOM AUTO-REPLY MANAGER       */}
             {/* ===================================================================== */}
             {activeTab === 'line' && (
-              <div className="space-y-4 max-w-4xl mx-auto">
-                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">📲</span>
+              <div className="space-y-4">
+                {/* 1. Custom Keyword Auto-Reply Manager */}
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
                     <div>
-                      <h2 className="font-bold text-slate-900 text-base">ระบบลงทะเบียนรับบิลผ่าน LINE Official Account</h2>
-                      <p className="text-xs text-slate-500">ผูกห้องชุดด้วยรหัส: เลขห้อง 3 หลัก + เบอร์โทร 3 ตัวท้าย</p>
+                      <h2 className="font-bold text-slate-900 text-base">
+                        ⚙️ ตั้งค่าเมนูคีย์เวิร์ด & ข้อความตอบกลับอัตโนมัติ (LINE OA Bot)
+                      </h2>
+                      <p className="text-slate-500">
+                        กำหนดว่าเมื่อลูกบ้านพิมพ์ข้อความอะไรเข้ามาใน LINE ➔ ให้เว็บตอบกลับข้อความอะไรออกไป
+                      </p>
                     </div>
-                  </div>
-
-                  <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl text-xs space-y-2 text-emerald-900">
-                    <div className="font-bold">💡 กฎการสร้างรหัสลงทะเบียนสำหรับลูกบ้าน:</div>
-                    <p className="leading-relaxed">
-                      ลูกบ้านเพิ่มเพื่อน LINE OA แล้วพิมพ์รหัส <b>เลขห้อง 3 หลัก ตามด้วยเลข 3 หลักสุดท้ายของเบอร์โทรศัพท์</b><br />
-                      ตัวอย่างเช่น: <b>ห้อง 645/005</b> เบอร์โทรลงท้าย <b>273</b> รหัสยืนยันคือ <span className="bg-white px-2 py-0.5 rounded border border-emerald-300 font-mono font-bold text-sm text-slate-900">005273</span>
-                    </p>
-                  </div>
-                </div>
-
-                {/* Live Code Tester */}
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-                  <h3 className="font-bold text-slate-800 text-sm">🧪 ทดสอบตรวจสอบรหัสลงทะเบียน LINE</h3>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={testLineCode}
-                      onChange={(e) => setTestLineCode(e.target.value)}
-                      placeholder="พิมพ์รหัส 6 หลัก เช่น 005273..."
-                      className="border rounded-xl px-3 py-2 text-xs font-mono font-bold flex-1"
-                    />
                     <button
                       type="button"
-                      onClick={handleTestLineCode}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm"
+                      onClick={() =>
+                        setEditingRule({
+                          keyword: '',
+                          match_type: 'contains',
+                          reply_mode: 'custom_text',
+                          reply_text: '',
+                          description: '',
+                          is_active: true,
+                          sort_order: lineRules.length + 1,
+                        })
+                      }
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow"
                     >
-                      ตรวจสอบรหัส
+                      ＋ เพิ่มคีย์เวิร์ดตอบกลับใหม่
                     </button>
                   </div>
 
+                  {/* Available Dynamic Placeholders Reference */}
+                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-1">
+                    <span className="font-bold text-slate-700 block">
+                      💡 ตัวแปรอัตโนมัติที่นำมาใส่ในข้อความตอบกลับได้ (ระบบจะแทนที่ด้วยข้อมูลจริงของห้องนั้นทันที):
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 text-[11px] font-mono text-blue-700 pt-1">
+                      {[
+                        '{condo_name}',
+                        '{room_no}',
+                        '{owner_name}',
+                        '{period}',
+                        '{water_units}',
+                        '{water_total}',
+                        '{common_fee}',
+                        '{total_due}',
+                        '{payment_status}',
+                        '{due_date}',
+                        '{bank_info}',
+                        '{statement_12m}',
+                        '{fund_summary}',
+                        '{building_finance}',
+                      ].map((tag) => (
+                        <span
+                          key={tag}
+                          className="bg-white border border-slate-300 px-2 py-0.5 rounded select-all"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Add / Edit Rule Form */}
+                  {editingRule && (
+                    <div className="bg-blue-50/60 border-2 border-blue-400 p-4 rounded-2xl space-y-3">
+                      <h3 className="font-bold text-blue-900 text-sm">
+                        {editingRule.id ? '✏️ แก้ไขคีย์เวิร์ดตอบกลับ' : '➕ สร้างคีย์เวิร์ดตอบกลับใหม่'}
+                      </h3>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="font-bold text-slate-700 block mb-1">
+                            เมื่อได้รับข้อความ (คั่นหลายคำด้วยลูกน้ำ ,)
+                          </label>
+                          <input
+                            type="text"
+                            value={editingRule.keyword || ''}
+                            onChange={(e) =>
+                              setEditingRule((prev) => ({ ...prev, keyword: e.target.value }))
+                            }
+                            placeholder="เช่น เลขบัญชี,โอนเงิน,พร้อมเพย์"
+                            className="w-full border rounded-lg p-2 bg-white font-bold text-blue-800"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="font-bold text-slate-700 block mb-1">
+                            รูปแบบการตรวจจับคำ
+                          </label>
+                          <select
+                            value={editingRule.match_type || 'contains'}
+                            onChange={(e) =>
+                              setEditingRule((prev) => ({ ...prev, match_type: e.target.value }))
+                            }
+                            className="w-full border rounded-lg p-2 bg-white"
+                          >
+                            <option value="contains">มีคำนี้อยู่ในประโยค (แนะนำ)</option>
+                            <option value="exact">ต้องพิมพ์ตรงทุกตัวอักษร</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="font-bold text-slate-700 block mb-1">
+                            โหมดข้อมูลสิทธิ์ PDPA
+                          </label>
+                          <select
+                            value={editingRule.reply_mode || 'custom_text'}
+                            onChange={(e) =>
+                              setEditingRule((prev) => ({ ...prev, reply_mode: e.target.value }))
+                            }
+                            className="w-full border rounded-lg p-2 bg-white"
+                          >
+                            <option value="custom_text">ข้อความทั่วไป (ทุกคนดูได้)</option>
+                            <option value="system_bill">หมวด 1: ใบแจ้งหนี้ (เฉพาะห้องตนเอง)</option>
+                            <option value="system_receipt">หมวด 1: ใบเสร็จรับเงิน (เฉพาะห้องตนเอง)</option>
+                            <option value="system_statement">หมวด 2: สเตทเมนท์ 12 เดือน (เฉพาะห้องตนเอง)</option>
+                            <option value="system_fund">หมวด 3: เงินระดมทุนซ่อมตึก (ทุกห้องเห็นตรงกัน)</option>
+                            <option value="system_finance">หมวด 4: ภาพรวมการเงินอาคาร (ทุกห้องเห็นตรงกัน)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="font-bold text-slate-700 block mb-1">
+                          ข้อความที่จะให้เว็บตอบกลับไปที่ LINE
+                        </label>
+                        <textarea
+                          rows={5}
+                          value={editingRule.reply_text || ''}
+                          onChange={(e) =>
+                            setEditingRule((prev) => ({ ...prev, reply_text: e.target.value }))
+                          }
+                          placeholder="พิมพ์ข้อความตอบกลับ สามารถใส่ตัวแปร เช่น {room_no} หรือ {total_due} ได้..."
+                          className="w-full border rounded-lg p-2.5 bg-white font-mono text-xs"
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingRule(null)}
+                          className="px-4 py-2 border border-slate-300 bg-white text-slate-700 font-bold rounded-xl"
+                        >
+                          ยกเลิก
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSaveLineRule}
+                          className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow"
+                        >
+                          💾 บันทึกคีย์เวิร์ดตอบกลับ
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rules List Table */}
+                  <div className="overflow-x-auto border rounded-xl">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 text-slate-600 border-b">
+                        <tr>
+                          <th className="py-2.5 px-3 text-left">เมื่อลูกบ้านพิมพ์คีย์เวิร์ด</th>
+                          <th className="py-2.5 px-3 text-left">หมวดสิทธิ์ข้อมูล</th>
+                          <th className="py-2.5 px-3 text-left">ข้อความที่เว็บตอบกลับไปให้ LINE</th>
+                          <th className="py-2.5 px-3 text-center">สถานะ</th>
+                          <th className="py-2.5 px-3 text-center">จัดการ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {lineRules.map((rule) => (
+                          <tr key={rule.id} className="hover:bg-slate-50">
+                            <td className="py-2.5 px-3 font-bold text-blue-700">
+                              <div className="flex flex-wrap gap-1">
+                                {rule.keyword.split(',').map((kw, i) => (
+                                  <span
+                                    key={i}
+                                    className="px-2 py-0.5 bg-blue-50 border border-blue-200 rounded-md font-mono text-[11px]"
+                                  >
+                                    {kw.trim()}
+                                  </span>
+                                ))}
+                              </div>
+                              {rule.description && (
+                                <div className="text-[10px] text-slate-400 font-normal mt-1">
+                                  {rule.description}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full text-[10px] font-medium">
+                                {rule.reply_mode === 'custom_text'
+                                  ? 'ข้อความทั่วไป'
+                                  : rule.reply_mode === 'system_bill'
+                                  ? '🔒 บิลห้องตนเอง'
+                                  : rule.reply_mode === 'system_receipt'
+                                  ? '🔒 ใบเสร็จห้องตนเอง'
+                                  : rule.reply_mode === 'system_statement'
+                                  ? '🔒 สเตทเมนท์ 12 เดือน'
+                                  : rule.reply_mode === 'system_fund'
+                                  ? '🌐 เงินระดมทุนตึก'
+                                  : '🌐 การเงินอาคาร'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <pre className="whitespace-pre-wrap font-sans text-[11px] text-slate-700 max-h-24 overflow-y-auto bg-slate-50 p-2 rounded border">
+                                {rule.reply_text}
+                              </pre>
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleLineRule(rule)}
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                  rule.is_active
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-slate-200 text-slate-500'
+                                }`}
+                              >
+                                {rule.is_active ? 'เปิดใช้งาน' : 'ปิดไว้'}
+                              </button>
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingRule(rule)}
+                                  className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold"
+                                >
+                                  ✏️ แก้ไข
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteLineRule(rule.id)}
+                                  className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-bold"
+                                >
+                                  ลบ
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 2. Room Registration Table with "🔓 ยกเลิกการผูก LINE" Button */}
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-xs">
+                  <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
+                    <div>
+                      <h3 className="font-bold text-slate-800 text-sm">
+                        📋 จัดการผู้รับข้อมูล LINE รายห้อง & ยกเลิกการลงทะเบียน ({lineRegisteredCount} / {rooms.length} ห้อง)
+                      </h3>
+                      <p className="text-slate-500">
+                        กรณีเปลี่ยนผู้เช่า เปลี่ยนเจ้าของ หรือเปลี่ยนผู้รับข้อมูล กดปุ่ม &quot;🔓 ยกเลิกการผูก LINE&quot; เพื่อให้คนใหม่ลงทะเบียนแทนได้ทันที
+                      </p>
+                    </div>
+
+                    {/* Quick Test Registration Code */}
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        maxLength={6}
+                        value={testLineCode}
+                        onChange={(e) => setTestLineCode(e.target.value)}
+                        placeholder="ทดสอบรหัส 6 หลัก เช่น 005273"
+                        className="border rounded-xl px-3 py-1.5 font-mono font-bold w-48"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleTestLineCode}
+                        className="px-3 py-1.5 bg-slate-800 text-white font-bold rounded-xl"
+                      >
+                        เช็ครหัส
+                      </button>
+                    </div>
+                  </div>
+
                   {testLineResult && (
-                    <div className={`p-3 rounded-xl text-xs ${
-                      testLineResult.match ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-800'
-                    }`}>
+                    <div
+                      className={`m-3 p-2.5 rounded-xl ${
+                        testLineResult.match
+                          ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                          : 'bg-red-50 border border-red-200 text-red-800'
+                      }`}
+                    >
                       {testLineResult.message}
                     </div>
                   )}
-                </div>
 
-                {/* Registered Rooms Summary Table */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="p-3 border-b flex justify-between items-center text-xs">
-                    <span className="font-bold text-slate-800">สถานะการผูก LINE ของแต่ละห้อง ({lineRegisteredCount} / {rooms.length} ห้อง)</span>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto">
+                  <div className="max-h-96 overflow-y-auto">
                     <table className="w-full text-xs">
                       <thead className="bg-slate-50 text-slate-600 border-b sticky top-0">
                         <tr>
-                          <th className="py-2 px-3 text-left">เลขห้อง</th>
-                          <th className="py-2 px-3 text-left">ชื่อผู้ติดต่อ</th>
-                          <th className="py-2 px-3 text-left">เบอร์โทรศัพท์</th>
-                          <th className="py-2 px-3 text-center">รหัสลงทะเบียน</th>
-                          <th className="py-2 px-3 text-center">สถานะ LINE</th>
+                          <th className="py-2.5 px-3 text-left">เลขห้อง</th>
+                          <th className="py-2.5 px-3 text-left">ชื่อผู้ติดต่อ (เจ้าของ/ผู้เช่า)</th>
+                          <th className="py-2.5 px-3 text-left">เบอร์โทรศัพท์</th>
+                          <th className="py-2.5 px-3 text-center">รหัสลงทะเบียน 6 หลัก</th>
+                          <th className="py-2.5 px-3 text-center">สถานะ LINE</th>
+                          <th className="py-2.5 px-3 text-center">จัดการผู้รับข้อมูล</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y text-slate-800">
@@ -1399,18 +2494,44 @@ export default function AdminCondoApp() {
 
                           return (
                             <tr key={room.room_no} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 font-bold text-blue-700 font-mono">{formatRoomNo(room.room_no)}</td>
+                              <td className="py-2 px-3 font-bold text-blue-700 font-mono">
+                                {formatRoomNo(room.room_no)}
+                              </td>
                               <td className="py-2 px-3">{room.owner_name || room.tenant_name || '-'}</td>
                               <td className="py-2 px-3 font-mono">{room.owner_phone || room.tenant_phone || '-'}</td>
                               <td className="py-2 px-3 text-center font-mono font-bold text-emerald-800 bg-emerald-50/40">
                                 {regCode}
                               </td>
                               <td className="py-2 px-3 text-center">
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] ${
-                                  isLinked ? 'bg-emerald-100 text-emerald-800 font-bold' : 'bg-slate-100 text-slate-500'
-                                }`}>
-                                  {isLinked ? '✅ ผูกแล้ว' : '⏳ ยังไม่ผูก'}
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] ${
+                                    isLinked
+                                      ? 'bg-emerald-100 text-emerald-800 font-bold'
+                                      : 'bg-slate-100 text-slate-500'
+                                  }`}
+                                >
+                                  {isLinked ? '✅ ผูก LINE แล้ว' : '⏳ ยังไม่ผูก'}
                                 </span>
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  {isLinked && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUnlinkLineRoom(room)}
+                                      className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-bold text-[11px]"
+                                    >
+                                      🔓 ยกเลิกการผูก LINE
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailRoom(room)}
+                                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium text-[11px]"
+                                  >
+                                    แก้เบอร์โทร
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -1423,13 +2544,22 @@ export default function AdminCondoApp() {
             )}
 
             {/* ===================================================================== */}
-            {/* TAB 7: SETTINGS                                                       */}
+            {/* TAB 7: SETTINGS & CSV EXPORT                                          */}
             {/* ===================================================================== */}
             {activeTab === 'settings' && (
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
-                <div className="border-b pb-3">
-                  <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645</h2>
-                  <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร และรอบบิล</p>
+                <div className="border-b pb-3 flex items-center justify-between">
+                  <div>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v1.4)</h2>
+                    <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และสำรองข้อมูล</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportCsv}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-xs"
+                  >
+                    📥 ส่งออกไฟล์ Excel (CSV)
+                  </button>
                 </div>
 
                 {settingsSaved && (
@@ -1480,7 +2610,7 @@ export default function AdminCondoApp() {
                 <div className="border-t pt-3 space-y-3">
                   <h3 className="font-bold text-slate-800">ข้อมูลบัญชีรับเงิน & พร้อมเพย์</h3>
                   <div>
-                    <label className="text-slate-700 font-bold block mb-1">เบอร์พร้อมเพย์ / เลขผู้เสียภาษีนิติ (สำหรับ QR Code บนบิล)</label>
+                    <label className="text-slate-700 font-bold block mb-1">เบอร์พร้อมเพย์ / เลขผู้เสียภาษีนิติ</label>
                     <input
                       type="text"
                       value={promptpayNo}
@@ -1520,9 +2650,48 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
+                <div className="border-t pt-3 space-y-3">
+                  <h3 className="font-bold text-slate-800">การเชื่อมต่อ LINE Official Account (Messaging API)</h3>
+                  <div>
+                    <label className="text-slate-600 block mb-1">Webhook URL (นำไปใส่ใน LINE Developers Console)</label>
+                    <div className="bg-slate-100 p-2 rounded-lg border font-mono text-slate-800 select-all">
+                      https://somboon-condo.vercel.app/api/line/webhook
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-slate-600 block mb-1">Channel Secret</label>
+                    <input
+                      type="password"
+                      value={lineSecret}
+                      onChange={(e) => setLineSecret(e.target.value)}
+                      className="w-full border rounded-lg p-2 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-600 block mb-1">Channel Access Token (Long-lived)</label>
+                    <input
+                      type="password"
+                      value={lineAccessToken}
+                      onChange={(e) => setLineAccessToken(e.target.value)}
+                      className="w-full border rounded-lg p-2 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-600 block mb-1">
+                      ข้อความต้อนรับเริ่มต้นเมื่อลูกบ้านพิมพ์คำอื่นที่ไม่ตรงคีย์เวิร์ด
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={lineGreetingMsg}
+                      onChange={(e) => setLineGreetingMsg(e.target.value)}
+                      className="w-full border rounded-lg p-2"
+                    />
+                  </div>
+                </div>
+
                 <div className="border-t pt-3 grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-slate-700 font-bold block mb-1">รอบบิลปัจจุบัน</label>
+                    <label className="text-slate-700 font-bold block mb-1">รอบบิลปัจจุบัน (สำหรับแอปพนักงาน)</label>
                     <input
                       type="text"
                       value={period}
@@ -1548,7 +2717,7 @@ export default function AdminCondoApp() {
                   onClick={handleSaveSettings}
                   className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md text-sm mt-3"
                 >
-                  💾 บันทึกการตั้งค่า
+                  💾 บันทึกการตั้งค่าทั้งหมด
                 </button>
               </div>
             )}
@@ -1557,7 +2726,83 @@ export default function AdminCondoApp() {
       </main>
 
       {/* ===================================================================== */}
-      {/* FULL-SCREEN PHOTO ZOOM & COMPARISON LIGHTBOX MODAL                    */}
+      {/* MODAL: CUSTOM LINE NOTIFICATION PUSH (FOR SELECTED ROOMS)             */}
+      {/* ===================================================================== */}
+      {pushCustomModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-3">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
+              <h3 className="font-bold text-sm text-sky-400">
+                🔔 ส่งข้อความแจ้งเตือน LINE ให้ห้องที่เลือก ({selectedRooms.length} ห้อง)
+              </h3>
+              <button onClick={() => setPushCustomModalOpen(false)} className="text-slate-400 hover:text-white">
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-3 text-xs">
+              <p className="text-slate-600">
+                สามารถปรับแต่งข้อความแจ้งเตือนได้ตามต้องการ (รองรับตัวแปร <code className="bg-slate-100 px-1 rounded">{'{room_no}'}</code>,{' '}
+                <code className="bg-slate-100 px-1 rounded">{'{total_due}'}</code>,{' '}
+                <code className="bg-slate-100 px-1 rounded">{'{period}'}</code>,{' '}
+                <code className="bg-slate-100 px-1 rounded">{'{due_date}'}</code>)
+              </p>
+              <textarea
+                rows={5}
+                value={customPushText}
+                onChange={(e) => setCustomPushText(e.target.value)}
+                className="w-full border rounded-xl p-2.5 font-sans"
+              />
+            </div>
+            <div className="p-3 bg-slate-100 border-t flex gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setPushCustomModalOpen(false)}
+                className="flex-1 py-2.5 border border-slate-300 rounded-xl font-bold text-slate-700"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={isPushingLine}
+                onClick={() => handlePushLine(selectedRooms, 'custom', customPushText)}
+                className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold shadow"
+              >
+                {isPushingLine ? 'กำลังส่ง...' : '📲 ยืนยันส่งแจ้งเตือน'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL: SLIP IMAGE VIEWER FROM SUPABASE STORAGE                        */}
+      {/* ===================================================================== */}
+      {slipViewerUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setSlipViewerUrl(null)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 text-white max-w-lg w-full rounded-2xl overflow-hidden shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 bg-slate-950 flex items-center justify-between border-b border-slate-800">
+              <span className="font-bold text-sm text-sky-400">
+                🖼️ หลักฐานสลิปการโอนเงิน — ห้อง {slipViewerUrl.roomNo} (รอบ {period})
+              </span>
+              <button onClick={() => setSlipViewerUrl(null)} className="w-8 h-8 rounded-full bg-slate-800">
+                ✕
+              </button>
+            </div>
+            <div className="p-3 bg-black flex justify-center max-h-[75vh] overflow-y-auto">
+              <img src={slipViewerUrl.url} alt="Payment Slip" className="max-h-[70vh] w-auto object-contain rounded" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* MODAL: FULL-SCREEN METER PHOTO ZOOM & COMPARISON LIGHTBOX             */}
       {/* ===================================================================== */}
       {lightboxRoom && (
         <div
@@ -1598,7 +2843,6 @@ export default function AdminCondoApp() {
               )}
             </div>
 
-            {/* Bottom Verification Strip inside Lightbox */}
             {(() => {
               const log = logMap[lightboxRoom.room_no];
               const draft = inlineEdits[lightboxRoom.room_no];
@@ -1656,18 +2900,16 @@ export default function AdminCondoApp() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await handleInlineMeterSave(lightboxRoom);
-                        setLightboxRoom(null);
-                      }}
-                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow text-xs"
-                    >
-                      ✅ ยืนยันตัวเลขถูกต้อง & บันทึก
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await handleInlineMeterSave(lightboxRoom);
+                      setLightboxRoom(null);
+                    }}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow text-xs"
+                  >
+                    ✅ ยืนยันตัวเลขถูกต้อง & บันทึก
+                  </button>
                 </div>
               );
             })()}
@@ -1689,7 +2931,21 @@ export default function AdminCondoApp() {
             setRooms((prev) =>
               prev.map((r) => (r.room_no === updatedRoom.room_no ? updatedRoom : r))
             );
-            fetchData();
+            fetchData(period);
+          }}
+        />
+      )}
+
+      {/* MODAL: PER-ROOM BILL EDITOR (CHARGES / DISCOUNTS / LATE FEE) */}
+      {billEditRoom && (
+        <BillEditModal
+          room={billEditRoom}
+          meterLog={logMap[billEditRoom.room_no]}
+          period={period}
+          config={config}
+          onClose={() => setBillEditRoom(null)}
+          onSaved={() => {
+            fetchData(period);
           }}
         />
       )}
@@ -1704,7 +2960,7 @@ export default function AdminCondoApp() {
               prev.map((r) => (r.room_no === updatedRoom.room_no ? updatedRoom : r))
             );
             setDetailRoom(null);
-            fetchData();
+            fetchData(period);
           }}
         />
       )}
@@ -1718,7 +2974,7 @@ export default function AdminCondoApp() {
           config={config}
           onClose={() => setPaymentRoom(null)}
           onPaymentSuccess={() => {
-            fetchData();
+            fetchData(period);
           }}
         />
       )}
@@ -1728,19 +2984,36 @@ export default function AdminCondoApp() {
         <ExpenseModal
           onClose={() => setShowExpenseModal(false)}
           onSuccess={() => {
-            fetchData();
+            fetchData(period);
           }}
         />
       )}
 
-      {/* MODAL: 4-PER-A4 BILL PRINT PREVIEW */}
+      {/* MODAL: 4-PER-A4 BILL / RECEIPT PRINT PREVIEW */}
       {showPrintModal && (
         <PrintBills4PerA4
           bills={calculatedBills}
           rooms={rooms}
+          logMap={logMap}
           config={config}
           qrMap={qrMap}
+          docType={printDocType}
+          preselectedRoomNos={printTargetRooms}
           onClose={() => setShowPrintModal(false)}
+        />
+      )}
+
+      {/* MODAL: MONTHLY NOTICEBOARD REPORT & ANNUAL 12-MONTH REPORT */}
+      {showMonthlyReportModal && (
+        <MonthlyReportPrintModal
+          period={period}
+          rooms={rooms}
+          bills={calculatedBills}
+          logMap={logMap}
+          transactions={transactions}
+          config={config}
+          allYearLogs={allYearLogs}
+          onClose={() => setShowMonthlyReportModal(false)}
         />
       )}
     </div>
