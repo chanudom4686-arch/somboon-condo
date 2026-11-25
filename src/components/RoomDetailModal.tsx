@@ -320,6 +320,9 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                 >
                   <option value="ห้องเล็ก">ห้องเล็ก (300 บาท/เดือน)</option>
                   <option value="ห้องใหญ่">ห้องใหญ่ (500 บาท/เดือน)</option>
+                  <option value="ห้องคู่ (600)">ห้องคู่ 2 ห้องเล็ก (600 บาท/เดือน)</option>
+                  <option value="ห้องคู่ (1000)">ห้องคู่ 2 ห้องใหญ่ (1,000 บาท/เดือน)</option>
+                  <option value="ห้องคู่ (800)">ห้องคู่ เล็ก+ใหญ่ (800 บาท/เดือน)</option>
                 </select>
               </div>
 

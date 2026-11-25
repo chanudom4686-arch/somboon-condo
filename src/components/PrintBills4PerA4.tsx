@@ -1,7 +1,7 @@
 'use client';
 
-// Printable 4-Bills-Per-A4 Component
-// Version 1.5 - Renders Multiple Custom Line Items Separately & Explicit Water (35 THB) / Wastewater (5 THB)
+// Printable 4-Bills-Per-A4 Component (Invoices & Receipts)
+// Version 1.8 - Search-only filter (removed room range dropdown) & Detailed Payment Method / Late Status on Receipts
 
 import React, { useState, useMemo } from 'react';
 import { BillCalculationResult, CondoConfig, Room, MeterLog } from '@/types/condo';
@@ -18,7 +18,6 @@ interface PrintBillsProps {
   onClose?: () => void;
 }
 
-// Helper to parse serialized custom line items for clean row-by-row printing on the bill
 function getPrintableCustomItems(noteStr?: string, totalSpecial = 0): { label: string; amount: number }[] {
   const clean = (noteStr || '').trim();
   if (!clean && totalSpecial === 0) return [];
@@ -66,7 +65,6 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
     preselectedRoomNos.length === 0
   );
   const [onlySelected, setOnlySelected] = useState<boolean>(preselectedRoomNos.length > 0);
-  const [roomRange, setRoomRange] = useState<'all' | '1-50' | '51-100' | '101-150' | '151-195'>('all');
   const [roomSearch, setRoomSearch] = useState<string>('');
 
   const roomMap = useMemo(() => {
@@ -88,11 +86,9 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
         return false;
       }
 
-      const num = parseInt(b.room_no.replace(/[^0-9]/g, ''), 10) || 0;
-      if (roomRange === '1-50' && !(num >= 1 && num <= 50)) return false;
-      if (roomRange === '51-100' && !(num >= 51 && num <= 100)) return false;
-      if (roomRange === '101-150' && !(num >= 101 && num <= 150)) return false;
-      if (roomRange === '151-195' && !(num >= 151 && num <= 195)) return false;
+      if (docType === 'receipt' && preselectedRoomNos.length === 0) {
+        if (!logMap[b.room_no]?.is_paid) return false;
+      }
 
       if (roomSearch.trim() !== '') {
         const q = roomSearch.trim();
@@ -102,7 +98,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
       }
       return true;
     });
-  }, [bills, roomMap, excludeProblemRooms, onlySelected, preselectedRoomNos, roomRange, roomSearch]);
+  }, [bills, roomMap, logMap, docType, excludeProblemRooms, onlySelected, preselectedRoomNos, roomSearch]);
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm overflow-y-auto">
@@ -110,7 +106,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
       <div className="sticky top-0 z-50 bg-white border-b px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm print:hidden">
         <div>
           <h2 className="font-bold text-slate-800 text-base sm:text-lg">
-            {docType === 'receipt' ? '🧾 ตัวอย่างพิมพ์ใบเสร็จรับเงิน' : '🖨️ ตัวอย่างพิมพ์ใบแจ้งหนี้'}{' '}
+            {docType === 'receipt' ? '🧾 พิมพ์ใบเสร็จรับเงิน (RECEIPT)' : '🖨️ พิมพ์ใบแจ้งหนี้ (INVOICE)'}{' '}
             (แสดง {filteredBills.length} ห้อง / {Math.max(1, Math.ceil(filteredBills.length / 4))} แผ่น A4)
           </h2>
           <p className="text-xs text-slate-500">
@@ -118,7 +114,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
           </p>
         </div>
 
-        {/* Print Filter Controls */}
+        {/* Print Filter Controls (Search Only — Room Range Removed) */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <select
             value={docType}
@@ -153,24 +149,12 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                 <span>ข้ามห้องมีปัญหา</span>
               </label>
 
-              <select
-                value={roomRange}
-                onChange={(e) => setRoomRange(e.target.value as any)}
-                className="border rounded-lg px-2.5 py-1.5 bg-white font-medium text-slate-700"
-              >
-                <option value="all">ทุกห้อง (001-195)</option>
-                <option value="1-50">ห้อง 001-050</option>
-                <option value="51-100">ห้อง 051-100</option>
-                <option value="101-150">ห้อง 101-150</option>
-                <option value="151-195">ห้อง 151-195</option>
-              </select>
-
               <input
                 type="text"
                 value={roomSearch}
                 onChange={(e) => setRoomSearch(e.target.value)}
-                placeholder="ค้นหาเลขห้อง..."
-                className="border rounded-lg px-2.5 py-1.5 w-28 bg-white"
+                placeholder="🔍 ค้นหาเลขห้อง..."
+                className="border rounded-lg px-2.5 py-1.5 w-36 bg-white"
               />
             </>
           )}
@@ -250,6 +234,10 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                 const isReceipt = docType === 'receipt';
                 const docNo = isReceipt ? generateReceiptNo(bill.invoice_no, 1) : bill.invoice_no;
                 const customLineItems = getPrintableCustomItems(bill.special_items_note, bill.special_items);
+                const paidMethodLabel =
+                  log?.paid_type === 'cash' || log?.paid_type === 'เงินสด'
+                    ? 'เงินสด (Cash)'
+                    : 'โอนเงินเข้าบัญชีธนาคาร (Bank Transfer)';
 
                 return (
                   <div
@@ -284,8 +272,8 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                               <span className="text-slate-500">วันที่รับชำระ: </span>
                               <span className="font-semibold text-emerald-700">
                                 {log?.paid_timestamp
-                                  ? new Date(log.paid_timestamp).toLocaleDateString('th-TH')
-                                  : new Date().toLocaleDateString('th-TH')}
+                                  ? new Date(log.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
+                                  : new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })}
                               </span>
                             </>
                           ) : (
@@ -385,9 +373,13 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
 
                       {isReceipt ? (
                         <div className="bg-emerald-50 border border-emerald-200 p-2 rounded text-[10px] flex justify-between items-center">
-                          <div>
-                            <div className="font-bold text-emerald-900">✅ ได้รับชำระเงินเรียบร้อยแล้ว</div>
-                            <div className="text-slate-600">ช่องทาง: {log?.paid_type || 'โอนเงิน/พร้อมเพย์'}</div>
+                          <div className="space-y-0.5">
+                            <div className="font-bold text-emerald-900">
+                              ✅ ได้รับชำระเงินเรียบร้อยแล้ว {log?.is_late_payment ? '(ชำระล่าช้า)' : '(ตามกำหนด)'}
+                            </div>
+                            <div className="text-slate-700 font-semibold">
+                              รับชำระโดย: <b className="text-blue-800">{paidMethodLabel}</b>
+                            </div>
                           </div>
                           <div className="text-right">
                             <div className="text-slate-500">ผู้รับเงิน / นิติบุคคล</div>

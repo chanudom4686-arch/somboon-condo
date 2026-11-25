@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
-import { formatRoomNo, calculateBill } from '@/utils/billing';
+import { formatRoomNo, calculateBill, resolveRoomNo } from '@/utils/billing';
 
 function verifySignature(body: string, channelSecret: string, signature: string | null): boolean {
   if (!signature || !channelSecret) return true;
@@ -121,10 +121,11 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // B. Handle 6-Digit Room Registration Code (e.g. "005273")
+        // B. Handle 6-Digit Room Registration Code (e.g. "005273", or paired "064273" / "065273" -> "064-065")
         const cleanDigits = text.replace(/[^0-9]/g, '');
         if (cleanDigits.length === 6 && text.length <= 10) {
-          const roomPrefix = cleanDigits.substring(0, 3);
+          const rawPrefix = cleanDigits.substring(0, 3);
+          const roomPrefix = resolveRoomNo(rawPrefix);
           const phoneSuffix = cleanDigits.substring(3, 6);
 
           const { data: roomData, error: roomErr } = await supabase

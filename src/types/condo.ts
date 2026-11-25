@@ -1,16 +1,16 @@
 // Types for Condo 645 Management System
-// Version 1.4 - Added Follow-up Tracking, Verification Badge, Custom Bill Items, and LINE Auto-Reply Rules
+// Version 1.8 - Supports Paired Rooms (64-65, 144-145, 164-165, 186-187), Overdue & Late Payment Tracking
 
-export type RoomType = 'ห้องเล็ก' | 'ห้องใหญ่' | 'small' | 'large';
+export type RoomType = 'ห้องเล็ก' | 'ห้องใหญ่' | 'ห้องคู่ (600)' | 'ห้องคู่ (1000)' | 'ห้องคู่ (800)' | 'small' | 'large';
 export type RoomStatus = 'ปกติ' | 'ติดต่อไม่ได้' | 'ธนาคารยึด' | 'รอขาย' | 'normal' | 'uncontactable' | 'bank_seized' | 'pending_sale';
 export type PrimaryPayer = 'เจ้าของ' | 'ผู้เช่า' | 'ทั้งคู่' | 'owner' | 'tenant' | 'both';
 export type Language = 'ไทย' | 'อังกฤษ' | 'TH' | 'EN';
-export type FollowupStatus = 'none' | 'line_notified' | 'phone_called' | 'unclear_slip';
+export type FollowupStatus = 'none' | 'line_notified' | 'phone_called' | 'overdue' | 'unclear_slip';
 
 export interface Room {
-  room_no: string; // e.g. "001" to "195"
+  room_no: string; // e.g. "001" to "195", or paired "064-065", "144-145", "164-165", "186-187"
   floor: number;
-  room_type: string; // 'ห้องเล็ก' | 'ห้องใหญ่'
+  room_type: string; // 'ห้องเล็ก' | 'ห้องใหญ่' | 'ห้องคู่ (600)' | 'ห้องคู่ (1000)' | 'ห้องคู่ (800)'
   status: string; // 'ปกติ' | 'ติดต่อไม่ได้' | 'ธนาคารยึด' | 'รอขาย'
   primary_payer: string;
   owner_name: string;
@@ -46,6 +46,7 @@ export interface MeterLog {
   prepaid_deducted: number;
   total_amount: number;
   is_paid: boolean;
+  is_late_payment?: boolean;
   paid_type: string | null;
   paid_timestamp: string | null;
   slip_url: string | null;
@@ -112,7 +113,7 @@ export interface CondoConfig {
 
 export interface BillCalculationResult {
   room_no: string;
-  formatted_room: string; // "645/001"
+  formatted_room: string; // e.g. "645/001" or "645/64-65"
   period: string;
   prev_meter: number;
   curr_meter: number;
