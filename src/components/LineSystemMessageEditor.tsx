@@ -1,189 +1,197 @@
 'use client';
 
-// LINE OA System Messages Editor with Drag-and-Drop Variable Chips & Live Phone Simulator
-// Version 2.8 - Allows Full Customization of Welcome, Registration Steps, Error & Fallback Messages
+// LINE OA System Messages Editor with Multi-Bubble, Image & PDF Document Support
+// Version 2.9 - Somboon Condo Town 645
 
 import React, { useState, useRef } from 'react';
 import { CondoConfig } from '@/types/condo';
 import { createClient } from '@/utils/supabase/client';
+import {
+  LineSystemBubble,
+  LineMessageBubbleType,
+  DEFAULT_LINE_TEMPLATES,
+  parseConfigToBubbles,
+} from '@/utils/lineTemplates';
 
 interface LineSystemMessageEditorProps {
   config: Partial<CondoConfig>;
   onSaved: () => void;
 }
 
-interface MessageDefinition {
-  key: string;
-  title: string;
-  badge: string;
-  description: string;
-  defaultText: string;
-  allowedTags: Array<{ tag: string; label: string; desc: string }>;
-}
-
 export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = ({ config, onSaved }) => {
   const supabase = createClient();
   const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)';
 
-  const MESSAGE_DEFINITIONS: MessageDefinition[] = [
-    {
-      key: 'LINE_GREETING_MESSAGE',
-      title: 'ข้อความเริ่มต้นเมื่อพิมพ์ไม่ตรงคีย์เวิร์ด (Default Fallback)',
-      badge: '💬 ทักทายทั่วไป',
-      description: 'ข้อความที่บอทตอบกลับอัตโนมัติเมื่อลูกบ้านพิมพ์คำทั่วไปที่ไม่ตรงกับคำสั่งใดๆ',
-      defaultText:
-        config.LINE_GREETING_MESSAGE ||
-        `สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name} 🏢\nWelcome to {condo_name} Official LINE!\n\n📌 การลงทะเบียนผูกห้องชุด / Room Registration:\n• กดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์คำว่า "ลงทะเบียน" / "Register"\n  Tap "Register" on the Rich Menu or type "ลงทะเบียน" / "Register"\n\n📌 คำสั่งตรวจสอบข้อมูล / Commands (หลังลงทะเบียนแล้ว):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้ / Current bill\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น. (12:00 PM - 12:00 AM)`,
-      allowedTags: [
-        { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
-        { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
-      ],
-    },
-    {
-      key: 'LINE_WELCOME_NEW_FRIEND',
-      title: 'ข้อความต้อนรับผู้ใช้ใหม่เมื่อกดเพิ่มเพื่อน (Follow Event)',
-      badge: '👋 แอดไลน์ครั้งแรก',
-      description: 'ข้อความแรกที่จะเด้งเข้าแชททันทีเมื่อมีคนกด Add Friend เข้ามาใน LINE OA คอนโด',
-      defaultText:
-        config.LINE_WELCOME_NEW_FRIEND ||
-        `สวัสดีครับ ยินดีต้อนรับสู่ LINE OA {condo_name} 🏢\nWelcome to {condo_name} Official LINE!\n\n📌 วิธีลงทะเบียนผูกห้องชุด / How to Register:\nกรุณากดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง (หรือพิมพ์คำว่า "ลงทะเบียน" / "Register") เพื่อผูกห้องชุดรับบิลค่าน้ำและค่าส่วนกลาง\nPlease tap "ลงทะเบียน (Register)" on the Rich Menu below (or type "ลงทะเบียน" / "Register") to link your room.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours:\n12.00 - 24.00 น. (12:00 PM - 12:00 AM) ทุกวัน / Daily`,
-      allowedTags: [
-        { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
-        { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
-      ],
-    },
-    {
-      key: 'LINE_REG_PROMPT_PHONE',
-      title: 'ขั้นตอนลงทะเบียน (1): เมื่อพิมพ์เลขห้องแล้วถามหาเบอร์ 4 ตัวท้าย',
-      badge: '📱 ขอเบอร์ยืนยัน',
-      description: 'ส่งหาลูกบ้านเพื่อยืนยันตัวตนตามหลักความปลอดภัย PDPA เมื่อลูกบ้านพิมพ์เลขห้องเข้ามา',
-      defaultText:
-        config.LINE_REG_PROMPT_PHONE ||
-        `🔍 ตรวจพบข้อมูลห้องชุด {room_no}\n👤 ผู้ลงทะเบียน / Resident: คุณ {owner_name}\n\n🔒 เพื่อความปลอดภัยตามหลัก PDPA กรุณาพิมพ์ "ตัวเลข 4 ตัวท้าย" ของเบอร์โทรศัพท์ที่ลงทะเบียนไว้กับห้องชุดนี้ เพื่อยืนยันตัวตนครับ\nFor security reasons, please type the last 4 digits of your registered phone number.\n\n(หากต้องการเปลี่ยนห้องชุด สามารถพิมพ์เลขห้องใหม่ได้ตลอดเวลา)\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
-      allowedTags: [
-        { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
-        { tag: '{owner_name}', label: 'ชื่อเจ้าของ', desc: 'คุณสมศักดิ์' },
-        { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
-      ],
-    },
-    {
-      key: 'LINE_REG_SUCCESS',
-      title: 'ขั้นตอนลงทะเบียน (2): เมื่อยืนยันเบอร์ถูกต้องและผูกห้องสำเร็จ',
-      badge: '🎉 ผูกห้องสำเร็จ',
-      description: 'ส่งแจ้งลูกบ้านทันทีที่ยืนยันเบอร์โทรศัพท์ 4 ตัวท้ายตรงกับข้อมูลในระบบ พร้อมแสดงเมนูคำสั่ง',
-      defaultText:
-        config.LINE_REG_SUCCESS ||
-        `🎉 ลงทะเบียนผูกห้อง {room_no} สำเร็จแล้วครับ!\nRegistration Complete for Room(s): {room_no}!\n👤 ผู้รับข้อมูล / Resident: คุณ {owner_name}\n\n📌 คำสั่งตรวจสอบข้อมูลอัตโนมัติ (Thai / English Commands):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้ทุกห้องที่ผูกไว้ / View current bill\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Payment receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ยอดเงินระดมทุนซ่อมตึก / Maintenance fund\n• พิมพ์ "การเงิน" หรือ "finance" — สรุปรายรับ-รายจ่ายตึก / Building finance\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ช่องทางโอนเงิน / Bank account\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
-      allowedTags: [
-        { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
-        { tag: '{owner_name}', label: 'ชื่อเจ้าของ', desc: 'คุณสมศักดิ์' },
-        { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
-      ],
-    },
-    {
-      key: 'LINE_REG_PHONE_ERROR',
-      title: 'ขั้นตอนลงทะเบียน (3): เมื่อพิมพ์เลข 4 ตัวท้ายไม่ตรง',
-      badge: '❌ เบอร์ไม่ตรง',
-      description: 'ส่งแจ้งเตือนเมื่อลูกบ้านกรอกเลข 4 ตัวท้ายไม่ตรงกับฐานข้อมูลของห้องชุดนั้นๆ',
-      defaultText:
-        config.LINE_REG_PHONE_ERROR ||
-        `❌ ตัวเลข 4 ตัวท้ายที่พิมพ์มา ไม่ตรงกับเบอร์โทรศัพท์ที่ลงทะเบียนไว้ของห้อง {room_no} ({masked_phone})\nThe last 4 digits do not match our records.\n\n• กรุณาพิมพ์ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์อีกครั้ง\n  Please enter the last 4 digits again.\n• หรือพิมพ์เลขห้องใหม่ (เช่น 001 หรือ 001,002) หากต้องการเปลี่ยนห้อง\n  Or type room number(s) again (e.g. 001 or 001,002).\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
-      allowedTags: [
-        { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
-        { tag: '{masked_phone}', label: 'เบอร์ซ่อนท้าย', desc: '089-xxx-6273' },
-      ],
-    },
-    {
-      key: 'LINE_PDPA_WARNING',
-      title: 'แจ้งเตือนความปลอดภัย PDPA: ผู้ใช้ยังไม่ลงทะเบียนพยายามดูบิล',
-      badge: '🔒 เตือนความปลอดภัย',
-      description: 'ส่งแจ้งเตือนเมื่อมีคนพิมพ์ "ดูบิล", "ใบเสร็จ" หรือ "สเตทเมนท์" โดยที่บัญชี LINE ยังไม่ได้ผูกห้องชุด',
-      defaultText:
-        config.LINE_PDPA_WARNING ||
-        `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\nPlease register your room before viewing bills, meter photos, or statements.\n\n📌 วิธีลงทะเบียน / How to Register:\nกดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์คำว่า "ลงทะเบียน" / "Register" (หรือพิมพ์เลขห้อง เช่น 001 หรือหลายห้อง 001,002)\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
-      allowedTags: [
-        { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
-      ],
-    },
-    {
-      key: 'LINE_UNLINK_SUCCESS',
-      title: 'ข้อความยืนยันเมื่อพิมพ์ "ยกเลิกผูกห้อง" (Unlink Complete)',
-      badge: '🔓 ยกเลิกผูกห้อง',
-      description: 'ส่งแจ้งยืนยันเมื่อลูกบ้านพิมพ์คำว่า "ยกเลิกผูกห้อง", "ยกเลิกลงทะเบียน" หรือ "unlink"',
-      defaultText:
-        config.LINE_UNLINK_SUCCESS ||
-        `✅ ยกเลิกการผูกห้องชุดเรียบร้อยแล้วครับ\nRoom unlinked successfully.\n\nหากต้องการลงทะเบียนผูกห้องใหม่ สามารถพิมพ์ "ลงทะเบียน" หรือพิมพ์เลขห้องได้ตลอดเวลาครับ\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
-      allowedTags: [
-        { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
-      ],
-    },
-  ];
+  const templateKeys = Object.keys(DEFAULT_LINE_TEMPLATES);
 
-  // Active selected message key
-  const [selectedKey, setSelectedKey] = useState<string>(MESSAGE_DEFINITIONS[0].key);
+  // Active selected template key
+  const [selectedKey, setSelectedKey] = useState<string>(templateKeys[0]);
 
-  // Local draft dictionary of messages
-  const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>(() => {
-    const drafts: Record<string, string> = {};
-    MESSAGE_DEFINITIONS.forEach((def) => {
-      drafts[def.key] = (config as any)[def.key] || def.defaultText;
-    });
-    return drafts;
+  // Master drafts: map of key -> LineSystemBubble[]
+  const [draftsMap, setDraftsMap] = useState<Record<string, LineSystemBubble[]>>(() => {
+    const map: Record<string, LineSystemBubble[]> = {};
+    for (const [key, tpl] of Object.entries(DEFAULT_LINE_TEMPLATES)) {
+      map[key] = parseConfigToBubbles((config as any)[key], tpl.defaultBubbles);
+    }
+    return map;
   });
 
+  // Track which bubble is currently focused for chip insertion
+  const [activeBubbleIndex, setActiveBubbleIndex] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [saveToast, setSaveToast] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const activeDef = MESSAGE_DEFINITIONS.find((d) => d.key === selectedKey) || MESSAGE_DEFINITIONS[0];
-  const currentText = messageDrafts[selectedKey] || activeDef.defaultText;
+  const activeTemplate = DEFAULT_LINE_TEMPLATES[selectedKey] || DEFAULT_LINE_TEMPLATES.LINE_WELCOME_NEW_FRIEND;
+  const currentBubbles = draftsMap[selectedKey] || activeTemplate.defaultBubbles;
 
-  // Insert tag at current cursor position in textarea
+  // Textarea references for cursor positioning
+  const textareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
+
+  // Update specific bubble
+  const updateBubble = (index: number, partial: Partial<LineSystemBubble>) => {
+    setDraftsMap((prev) => {
+      const list = [...(prev[selectedKey] || activeTemplate.defaultBubbles)];
+      if (list[index]) {
+        list[index] = { ...list[index], ...partial };
+      }
+      return { ...prev, [selectedKey]: list };
+    });
+  };
+
+  // Add new bubble
+  const addBubble = (type: LineMessageBubbleType) => {
+    if (currentBubbles.length >= 5) {
+      alert('สามารถเพิ่มช่องข้อความ/ไฟล์ได้สูงสุด 5 บอลลูนต่อ 1 เหตุการณ์ครับ');
+      return;
+    }
+    const newBubble: LineSystemBubble = {
+      id: String(Date.now()),
+      type,
+      text: type === 'text' ? '' : undefined,
+      url: type !== 'text' ? '' : undefined,
+      fileName: type === 'pdf' ? 'ระเบียบอาคารชุด.pdf' : undefined,
+    };
+
+    setDraftsMap((prev) => {
+      const list = [...(prev[selectedKey] || activeTemplate.defaultBubbles), newBubble];
+      return { ...prev, [selectedKey]: list };
+    });
+
+    setActiveBubbleIndex(currentBubbles.length);
+  };
+
+  // Remove bubble
+  const removeBubble = (index: number) => {
+    if (currentBubbles.length <= 1) {
+      alert('ต้องมีอย่างน้อย 1 ช่องข้อความครับ');
+      return;
+    }
+    setDraftsMap((prev) => {
+      const list = (prev[selectedKey] || activeTemplate.defaultBubbles).filter((_, i) => i !== index);
+      return { ...prev, [selectedKey]: list };
+    });
+    setActiveBubbleIndex(Math.max(0, index - 1));
+  };
+
+  // Move bubble up/down
+  const moveBubble = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= currentBubbles.length) return;
+
+    setDraftsMap((prev) => {
+      const list = [...(prev[selectedKey] || activeTemplate.defaultBubbles)];
+      const temp = list[index];
+      list[index] = list[targetIndex];
+      list[targetIndex] = temp;
+      return { ...prev, [selectedKey]: list };
+    });
+    setActiveBubbleIndex(targetIndex);
+  };
+
+  // Insert tag at cursor position for the active text bubble
   const insertTagAtCursor = (tag: string) => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      setMessageDrafts((prev) => ({
-        ...prev,
-        [selectedKey]: (prev[selectedKey] || '') + tag,
-      }));
+    const idx = activeBubbleIndex >= 0 && activeBubbleIndex < currentBubbles.length ? activeBubbleIndex : 0;
+    const bubble = currentBubbles[idx];
+    if (!bubble || bubble.type !== 'text') {
+      // Find the first text bubble
+      const firstTextIdx = currentBubbles.findIndex((b) => b.type === 'text');
+      if (firstTextIdx !== -1) {
+        updateBubble(firstTextIdx, { text: (currentBubbles[firstTextIdx].text || '') + tag });
+      }
       return;
     }
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const val = currentText;
-    const nextVal = val.substring(0, start) + tag + val.substring(end);
+    const textarea = textareaRefs.current[idx];
+    if (!textarea) {
+      updateBubble(idx, { text: (bubble.text || '') + tag });
+      return;
+    }
 
-    setMessageDrafts((prev) => ({
-      ...prev,
-      [selectedKey]: nextVal,
-    }));
+    const start = textarea.selectionStart || 0;
+    const end = textarea.selectionEnd || 0;
+    const currentText = bubble.text || '';
+    const newText = currentText.substring(0, start) + tag + currentText.substring(end);
+
+    updateBubble(idx, { text: newText });
 
     setTimeout(() => {
       textarea.focus();
       textarea.setSelectionRange(start + tag.length, start + tag.length);
-    }, 50);
+    }, 0);
   };
 
-  const handleResetToDefault = () => {
-    if (confirm(`คุณต้องการคืนค่าข้อความ "${activeDef.title}" เป็นข้อความมาตรฐานของระบบหรือไม่?`)) {
-      setMessageDrafts((prev) => ({
-        ...prev,
-        [selectedKey]: activeDef.defaultText,
-      }));
+  // Upload file (Image or PDF) to Supabase Storage
+  const handleFileUpload = async (file: File, bubbleIndex: number, type: LineMessageBubbleType) => {
+    setUploadingIndex(bubbleIndex);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `line_media/${Date.now()}_${safeName}`;
+
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('slips')
+        .upload(storagePath, file, { upsert: true });
+
+      if (uploadErr) throw uploadErr;
+
+      const { data: urlData } = supabase.storage.from('slips').getPublicUrl(uploadData.path);
+      const publicUrl = urlData.publicUrl;
+
+      updateBubble(bubbleIndex, {
+        url: publicUrl,
+        fileName: file.name,
+      });
+
+      alert(`✅ อัปโหลด${type === 'image' ? 'รูปภาพ' : 'ไฟล์ PDF'} เรียบร้อยแล้ว!`);
+    } catch (err: any) {
+      console.error('File upload error:', err);
+      alert('อัปโหลดไฟล์ไม่สำเร็จ: ' + err.message);
+    } finally {
+      setUploadingIndex(null);
     }
   };
 
+  // Save current message template to Supabase
   const handleSaveCurrentMessage = async () => {
     setIsSaving(true);
-    setSaveToast(null);
-
     try {
-      const textToSave = messageDrafts[selectedKey] || '';
+      // Clean up bubbles: trim texts, ensure valid URLs
+      const cleaned = currentBubbles.map((b, idx) => ({
+        id: String(idx + 1),
+        type: b.type,
+        text: b.text?.trim() || '',
+        url: b.url?.trim() || '',
+        fileName: b.fileName?.trim() || '',
+      }));
+
+      // Store as JSON string array
+      const jsonValue = JSON.stringify(cleaned);
+
       const { error } = await supabase.from('condo_config').upsert(
         {
           key: selectedKey,
-          value: textToSave,
+          value: jsonValue,
+          description: activeTemplate.title,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'key' }
@@ -191,24 +199,27 @@ export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = (
 
       if (error) throw error;
 
-      setSaveToast(`บันทึก "${activeDef.title}" เรียบร้อยแล้ว!`);
+      setSaveToast('บันทึกสำเร็จเรียบร้อยแล้ว!');
+      setTimeout(() => setSaveToast(null), 3500);
       onSaved();
-      setTimeout(() => setSaveToast(null), 3000);
     } catch (err: any) {
-      console.error('Save system message error:', err);
-      alert('เกิดข้อผิดพลาดในการบันทึก: ' + err.message);
+      console.error('Error saving template:', err);
+      alert('บันทึกข้อความไม่สำเร็จ: ' + err.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  // Preview replacement with mock data
-  const previewText = currentText
-    .replace(/\{condo_name\}/g, condoName)
-    .replace(/\{room_no\}/g, '645/64-65')
-    .replace(/\{owner_name\}/g, 'สมศักดิ์ ชัยชนะ')
-    .replace(/\{masked_phone\}/g, '089-xxx-6273')
-    .replace(/\{admin_hours\}/g, '12.00 - 24.00 น.');
+  // Reset current template to default
+  const handleResetToDefault = () => {
+    if (!window.confirm(`ยืนยันการคืนค่าเริ่มต้นของ "${activeTemplate.title}" หรือไม่?`)) return;
+
+    setDraftsMap((prev) => ({
+      ...prev,
+      [selectedKey]: activeTemplate.defaultBubbles,
+    }));
+    setActiveBubbleIndex(0);
+  };
 
   return (
     <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
@@ -217,12 +228,12 @@ export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = (
         <div>
           <h2 className="font-bold text-slate-900 text-base flex items-center gap-2">
             <span>💬 จัดการข้อความในระบบ (System Message Studio)</span>
-            <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-bold">
-              ลากวาง &amp; ตัวอย่างเสมือนจริง
+            <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold">
+              Multi-Bubble • รูปภาพ • ไฟล์ PDF
             </span>
           </h2>
           <p className="text-slate-500">
-            ปรับแต่งข้อความต้อนรับ ข้อความขั้นตอนการลงทะเบียน และข้อความแจ้งเตือนต่างๆ พร้อมระบบลากวางตัวแปร
+            ปรับแต่งข้อความต้อนรับ ขั้นตอนลงทะเบียน พร้อมแนบรูปภาพและเอกสาร PDF ได้สูงสุด 3-5 บอลลูนต่อเหตุการณ์
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -243,170 +254,494 @@ export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = (
         </div>
       </div>
 
-      {/* Message Type Selector Pills */}
-      <div className="flex flex-wrap gap-1.5 p-1.5 bg-slate-100 rounded-xl">
-        {MESSAGE_DEFINITIONS.map((def) => {
-          const isSelected = def.key === selectedKey;
-          return (
-            <button
-              key={def.key}
-              type="button"
-              onClick={() => setSelectedKey(def.key)}
-              className={`px-3 py-2 rounded-lg font-bold text-left transition flex items-center gap-1.5 ${
-                isSelected
-                  ? 'bg-white text-blue-800 shadow-xs border border-blue-200'
-                  : 'text-slate-600 hover:bg-white/60'
-              }`}
-            >
-              <span>{def.badge}</span>
-              <span className="truncate max-w-[160px] sm:max-w-none">{def.title.split('(')[0].trim()}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Main Workspace Layout: 2 Columns */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Left Column: Selector & Editor (7 cols) */}
+        <div className="lg:col-span-7 space-y-4">
+          {/* Step 1: Select Message Type Pills */}
+          <div className="space-y-1.5">
+            <label className="font-bold text-slate-700 block">
+              1. เลือกข้อความระบบที่ต้องการแก้ไข ({templateKeys.length} รายการ):
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {templateKeys.map((key) => {
+                const def = DEFAULT_LINE_TEMPLATES[key];
+                const isSelected = selectedKey === key;
+                const bubbleCount = (draftsMap[key] || def.defaultBubbles).length;
 
-      {/* Editor & Live Phone Simulator Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-1">
-        {/* Left Column: Editor & Drag/Click Chips (7 Cols) */}
-        <div className="lg:col-span-7 space-y-3">
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
-            <div className="font-bold text-slate-800 flex items-center gap-2">
-              <span className="text-base">{activeDef.badge}</span>
-              <span className="text-sm text-blue-900">{activeDef.title}</span>
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setSelectedKey(key);
+                      setActiveBubbleIndex(0);
+                    }}
+                    className={`text-left p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-1.5 ${
+                      isSelected
+                        ? 'bg-blue-50/80 border-blue-500 shadow-xs ring-1 ring-blue-400'
+                        : 'bg-white border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-bold text-[11px] text-slate-800">{def.badge}</span>
+                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md font-mono">
+                        {bubbleCount} บอลลูน
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-600 font-medium line-clamp-1">{def.title}</div>
+                  </button>
+                );
+              })}
             </div>
-            <p className="text-slate-500 text-[11px]">{activeDef.description}</p>
           </div>
 
-          {/* Draggable & Clickable Chips */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="font-bold text-slate-700">
-                ✨ บล็อกตัวแปรอัจฉริยะ (คลิกเพื่อแทรก หรือ ลากไปวางในช่องข้อความ):
+          {/* Active Template Description Box */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                <span>📌 {activeTemplate.title}</span>
               </span>
               <button
                 type="button"
                 onClick={handleResetToDefault}
-                className="text-slate-500 hover:text-rose-600 font-medium underline"
-                title="ล้างข้อความและคืนค่าเป็นค่ามาตรฐานของระบบ"
+                className="text-[10px] text-slate-500 hover:text-red-600 underline"
               >
-                🔄 คืนค่ามาตรฐาน
+                คืนค่าเริ่มต้นเฉพาะข้อความนี้
               </button>
             </div>
+            <p className="text-slate-500 text-[11px]">{activeTemplate.description}</p>
 
-            <div className="flex flex-wrap gap-2">
-              {activeDef.allowedTags.map((tagItem) => (
-                <div
-                  key={tagItem.tag}
-                  draggable={true}
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData('text/plain', tagItem.tag);
-                  }}
-                  onClick={() => insertTagAtCursor(tagItem.tag)}
-                  className="cursor-pointer select-none bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-800 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 font-bold shadow-2xs transition active:scale-95"
-                  title={`คลิกหรือลากเพื่อแทรก ${tagItem.tag} (ตัวอย่าง: ${tagItem.desc})`}
-                >
-                  <span className="font-mono text-xs">{tagItem.tag}</span>
-                  <span className="text-[10px] text-blue-600 font-normal">({tagItem.label})</span>
-                </div>
-              ))}
+            {/* Smart Variable Chips */}
+            <div className="pt-2 border-t border-slate-200">
+              <span className="font-bold text-slate-600 text-[11px] block mb-1.5">
+                🏷️ ตัวแปรอัจฉริยะ (คลิกหรือลากวางลงในช่องข้อความ):
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {activeTemplate.allowedTags.map((t) => (
+                  <button
+                    key={t.tag}
+                    type="button"
+                    draggable
+                    onDragStart={(e) => e.dataTransfer.setData('text/plain', t.tag)}
+                    onClick={() => insertTagAtCursor(t.tag)}
+                    className="px-2.5 py-1 bg-white hover:bg-blue-50 border border-slate-300 hover:border-blue-400 rounded-lg text-slate-700 font-mono text-[11px] flex items-center gap-1.5 cursor-grab active:cursor-grabbing transition"
+                    title={`คลิกเพื่อแทรก หรือลากไปปล่อย: ${t.desc}`}
+                  >
+                    <span className="font-bold text-blue-600">{t.tag}</span>
+                    <span className="text-[10px] text-slate-500">({t.label})</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* Message Textarea */}
-          <div className="space-y-1">
-            <label className="font-bold text-slate-700 block">เนื้อหาข้อความ (Message Content):</label>
-            <textarea
-              ref={textareaRef}
-              rows={12}
-              value={currentText}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                const tag = e.dataTransfer.getData('text/plain');
-                if (tag) insertTagAtCursor(tag);
-              }}
-              onChange={(e) =>
-                setMessageDrafts((prev) => ({
-                  ...prev,
-                  [selectedKey]: e.target.value,
-                }))
-              }
-              className="w-full border border-slate-300 rounded-xl p-3 bg-white font-mono text-xs leading-relaxed focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs"
-              placeholder="พิมพ์ข้อความที่นี่..."
-            />
-          </div>
+          {/* Step 2: Message Bubbles Editor */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-slate-700">
+                2. ช่องข้อความและไฟล์แนบ ({currentBubbles.length} / 5 บอลลูน):
+              </label>
+              <span className="text-[11px] text-slate-500">
+                LINE รองรับส่งตอบกลับพร้อมกันได้สูงสุด 5 บอลลูน (แนะนำ 1-3 ช่อง)
+              </span>
+            </div>
 
-          <div className="flex justify-between items-center text-[11px] text-slate-400">
-            <span>ความยาว: {currentText.length} ตัวอักษร</span>
-            <span>* รองรับ Emoji และการขึ้นบรรทัดใหม่ตามที่พิมพ์</span>
+            {/* Bubbles List */}
+            <div className="space-y-3">
+              {currentBubbles.map((bubble, idx) => {
+                const isFocused = activeBubbleIndex === idx;
+
+                return (
+                  <div
+                    key={bubble.id || idx}
+                    className={`p-3.5 rounded-xl border transition-all space-y-2.5 ${
+                      isFocused
+                        ? 'bg-white border-blue-400 ring-2 ring-blue-100 shadow-sm'
+                        : 'bg-white border-slate-200'
+                    }`}
+                    onClick={() => setActiveBubbleIndex(idx)}
+                  >
+                    {/* Bubble Card Top Bar */}
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-[10px]">
+                          {idx + 1}
+                        </span>
+                        <span className="font-bold text-slate-700">
+                          {bubble.type === 'text' && '📝 บอลลูนข้อความ (Text Bubble)'}
+                          {bubble.type === 'image' && '🖼️ บอลลูนรูปภาพ (Image Bubble)'}
+                          {bubble.type === 'pdf' && '📄 การ์ดเอกสาร PDF (Flex Document Card)'}
+                        </span>
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                            bubble.type === 'text'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : bubble.type === 'image'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-rose-100 text-rose-800'
+                          }`}
+                        >
+                          {bubble.type.toUpperCase()}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            moveBubble(idx, 'up');
+                          }}
+                          className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded text-slate-700 font-bold"
+                          title="เลื่อนขึ้น"
+                        >
+                          ⬆️
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === currentBubbles.length - 1}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            moveBubble(idx, 'down');
+                          }}
+                          className="px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-30 rounded text-slate-700 font-bold"
+                          title="เลื่อนลง"
+                        >
+                          ⬇️
+                        </button>
+                        {currentBubbles.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeBubble(idx);
+                            }}
+                            className="px-2 py-0.5 bg-red-50 hover:bg-red-100 text-red-600 rounded font-bold text-[10px]"
+                            title="ลบช่องนี้"
+                          >
+                            🗑️ ลบช่อง
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bubble Content Body */}
+                    {bubble.type === 'text' && (
+                      <div className="space-y-1.5">
+                        <textarea
+                          ref={(el) => {
+                            textareaRefs.current[idx] = el;
+                          }}
+                          rows={4}
+                          value={bubble.text || ''}
+                          onChange={(e) => updateBubble(idx, { text: e.target.value })}
+                          onFocus={() => setActiveBubbleIndex(idx)}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const tag = e.dataTransfer.getData('text/plain');
+                            if (tag) {
+                              const textarea = textareaRefs.current[idx];
+                              if (textarea) {
+                                const pos = textarea.selectionStart || 0;
+                                const txt = bubble.text || '';
+                                const updated = txt.slice(0, pos) + tag + txt.slice(pos);
+                                updateBubble(idx, { text: updated });
+                              }
+                            }
+                          }}
+                          placeholder="พิมพ์ข้อความที่ต้องการ... หรือลากวางตัวแปรอัจฉริยะ"
+                          className="w-full border border-slate-300 rounded-xl p-2.5 font-sans leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                        />
+                        <div className="flex justify-between items-center text-[10px] text-slate-400">
+                          <span>💡 สามารถกดแทรกตัวแปร เช่น &#123;room_no&#125; หรือ &#123;condo_name&#125; ได้</span>
+                          <span>{(bubble.text || '').length} ตัวอักษร</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {bubble.type === 'image' && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold cursor-pointer flex items-center gap-1.5 text-[11px]">
+                            <span>📁</span>
+                            <span>{uploadingIndex === idx ? 'กำลังอัปโหลด...' : 'อัปโหลดรูปภาพใหม่'}</span>
+                            <input
+                              type="file"
+                              accept="image/png, image/jpeg, image/jpg"
+                              disabled={uploadingIndex === idx}
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileUpload(file, idx, 'image');
+                              }}
+                            />
+                          </label>
+                          <span className="text-slate-400 text-[10px]">หรือใส่ URL รูปภาพโดยตรง (HTTPS):</span>
+                        </div>
+
+                        <input
+                          type="url"
+                          value={bubble.url || ''}
+                          onChange={(e) => updateBubble(idx, { url: e.target.value })}
+                          placeholder="https://.../photo.jpg"
+                          className="w-full border border-slate-300 rounded-xl p-2 font-mono text-[11px]"
+                        />
+
+                        {bubble.url && (
+                          <div className="flex items-center gap-3 p-2 bg-slate-50 border border-slate-200 rounded-xl">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={bubble.url}
+                              alt="preview"
+                              className="w-16 h-16 object-cover rounded-lg border border-slate-200 shadow-xs"
+                            />
+                            <div className="text-[11px] text-slate-600 space-y-0.5">
+                              <div className="font-bold text-slate-800">✅ รูปภาพพร้อมส่ง</div>
+                              <div className="text-[10px] text-slate-400 break-all line-clamp-1">{bubble.url}</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {bubble.type === 'pdf' && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold cursor-pointer flex items-center gap-1.5 text-[11px]">
+                            <span>📎</span>
+                            <span>{uploadingIndex === idx ? 'กำลังอัปโหลด...' : 'อัปโหลดไฟล์ PDF ใหม่'}</span>
+                            <input
+                              type="file"
+                              accept="application/pdf"
+                              disabled={uploadingIndex === idx}
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileUpload(file, idx, 'pdf');
+                              }}
+                            />
+                          </label>
+                          <span className="text-slate-400 text-[10px]">
+                            ระบบจะส่งเป็นการ์ดเอกสารพร้อมปุ่มดาวน์โหลดใน LINE
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-600 block mb-0.5">ชื่อเอกสาร PDF:</label>
+                            <input
+                              type="text"
+                              value={bubble.fileName || ''}
+                              onChange={(e) => updateBubble(idx, { fileName: e.target.value })}
+                              placeholder="เช่น ระเบียบอาคารชุด.pdf"
+                              className="w-full border border-slate-300 rounded-xl p-2 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-bold text-slate-600 block mb-0.5">
+                              คำอธิบายเพิ่มเติม (ใต้ชื่อไฟล์):
+                            </label>
+                            <input
+                              type="text"
+                              value={bubble.text || ''}
+                              onChange={(e) => updateBubble(idx, { text: e.target.value })}
+                              placeholder="เช่น แตะปุ่มด้านล่างเพื่อเปิดอ่าน"
+                              className="w-full border border-slate-300 rounded-xl p-2 text-xs"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-600 block mb-0.5">URL ไฟล์ PDF (HTTPS):</label>
+                          <input
+                            type="url"
+                            value={bubble.url || ''}
+                            onChange={(e) => updateBubble(idx, { url: e.target.value })}
+                            placeholder="https://.../document.pdf"
+                            className="w-full border border-slate-300 rounded-xl p-2 font-mono text-[11px]"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add More Bubbles Bar */}
+            {currentBubbles.length < 5 && (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => addBubble('text')}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl font-bold flex items-center gap-1.5 transition text-xs"
+                >
+                  <span>＋ เพิ่มช่องข้อความ (Text)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addBubble('image')}
+                  className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-xl font-bold flex items-center gap-1.5 transition text-xs"
+                >
+                  <span>🖼️ แนบรูปภาพ (Image)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addBubble('pdf')}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold flex items-center gap-1.5 transition text-xs"
+                >
+                  <span>📄 แนบไฟล์ PDF</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Right Column: Live Mobile LINE Simulator (5 Cols) */}
+        {/* Right Column: Live Mobile LINE Simulator (5 cols) */}
         <div className="lg:col-span-5 flex flex-col items-center">
-          <div className="w-full max-w-[320px]">
-            <div className="text-center font-bold text-slate-600 mb-2 flex items-center justify-center gap-1.5 text-xs">
-              <span>📱</span>
-              <span>ตัวอย่างแสดงผลใน LINE บนมือถือ (Live Preview)</span>
+          <div className="sticky top-20 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-2 px-1">
+              <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>จำลองหน้าจอมือถือลูกบ้าน (Live LINE Simulator)</span>
+              </span>
+              <span className="text-[10px] text-slate-400">ขนาดสัดส่วนจริง</span>
             </div>
 
-            {/* Smartphone Mockup Frame */}
-            <div className="w-full bg-slate-900 p-2.5 rounded-[36px] shadow-2xl border-4 border-slate-800">
-              {/* Speaker & Camera notch */}
-              <div className="flex justify-center mb-1.5">
-                <div className="w-16 h-3.5 bg-black rounded-full" />
+            {/* Smartphone Mockup */}
+            <div className="w-full bg-slate-900 rounded-[36px] p-3 shadow-2xl border-4 border-slate-700">
+              {/* Speaker & Camera Notch */}
+              <div className="w-28 h-4 bg-slate-800 rounded-full mx-auto mb-2 flex items-center justify-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-slate-950"></div>
+                <div className="w-8 h-1 rounded-full bg-slate-900"></div>
               </div>
 
-              {/* Screen Area (LINE Chat Style) */}
-              <div
-                className="rounded-[26px] overflow-hidden flex flex-col h-[460px]"
-                style={{ backgroundColor: '#7494C0' }} // Standard LINE Chat background
-              >
-                {/* LINE Header */}
-                <div className="bg-[#2B3245] text-white px-3 py-2.5 flex items-center justify-between shrink-0 shadow-xs">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="text-xs">❮</span>
-                    <div className="w-6 h-6 rounded-full bg-emerald-500 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
-                      🏢
+              {/* Mobile Screen */}
+              <div className="bg-[#7494C0] rounded-[24px] overflow-hidden flex flex-col h-[520px] shadow-inner text-xs">
+                {/* Chat Header Bar */}
+                <div className="bg-slate-900/90 backdrop-blur-xs text-white px-3.5 py-2.5 flex items-center justify-between border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">‹</span>
+                    <div className="w-7 h-7 rounded-full bg-emerald-600 flex items-center justify-center font-bold text-white text-[11px] shadow">
+                      645
                     </div>
-                    <span className="font-bold text-[11px] truncate">{condoName}</span>
+                    <div>
+                      <div className="font-bold text-[11px] leading-tight text-white line-clamp-1">{condoName}</div>
+                      <div className="text-[9px] text-emerald-400 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                        <span>ตอบกลับอัตโนมัติ (Bot)</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-[10px] text-slate-300">≡</div>
+                  <span className="text-slate-400 text-xs">⋮</span>
                 </div>
 
-                {/* LINE Chat Messages Area */}
-                <div className="p-3 overflow-y-auto flex-1 space-y-3 flex flex-col justify-end">
-                  {/* Date divider */}
-                  <div className="flex justify-center">
-                    <span className="bg-black/20 text-white text-[9px] px-2.5 py-0.5 rounded-full">
-                      วันนี้
+                {/* Chat Scrollable Area */}
+                <div className="flex-1 p-3 overflow-y-auto space-y-3">
+                  <div className="text-center">
+                    <span className="bg-black/20 text-white/90 text-[9px] px-2.5 py-0.5 rounded-full backdrop-blur-xs">
+                      วันนี้ 12:00 น.
                     </span>
                   </div>
 
-                  {/* Incoming Bot Message Bubble */}
-                  <div className="flex items-start gap-1.5 max-w-[92%]">
-                    <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs shrink-0 shadow">
-                      🏢
-                    </div>
+                  {/* Incoming Simulated Bubbles from Bot */}
+                  <div className="space-y-2">
+                    {currentBubbles.map((b, bIdx) => {
+                      if (b.type === 'text') {
+                        // Replace tags with sample mock values
+                        const rendered = (b.text || '')
+                          .replace(/\{condo_name\}/g, condoName)
+                          .replace(/\{room_no\}/g, '645/64-65')
+                          .replace(/\{owner_name\}/g, 'สมศักดิ์ ชัยชนะ')
+                          .replace(/\{masked_phone\}/g, '089-xxx-6273')
+                          .replace(/\{admin_hours\}/g, '12.00 - 24.00 น.');
 
-                    <div className="flex flex-col items-start">
-                      <span className="text-[9.5px] text-white/90 font-medium mb-0.5 pl-1">
-                        {condoName}
-                      </span>
-                      <div className="bg-white text-slate-900 rounded-2xl rounded-tl-xs p-3 shadow-md text-[11px] leading-relaxed whitespace-pre-wrap break-words border border-slate-100">
-                        {previewText || '(ยังไม่มีข้อความ)'}
-                      </div>
-                      <span className="text-[8.5px] text-white/80 mt-0.5 pl-1">
-                        {new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
+                        if (!rendered.trim()) {
+                          return (
+                            <div
+                              key={b.id || bIdx}
+                              className="bg-white/80 p-2 rounded-xl text-slate-400 italic text-[11px]"
+                            >
+                              (ยังไม่มีข้อความในช่องที่ {bIdx + 1})
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div key={b.id || bIdx} className="flex items-start gap-1.5 max-w-[90%]">
+                            <div className="bg-white text-slate-800 p-3 rounded-2xl rounded-tl-xs shadow-xs text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                              {rendered}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (b.type === 'image') {
+                        return (
+                          <div key={b.id || bIdx} className="max-w-[85%]">
+                            {b.url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={b.url}
+                                alt="line image bubble"
+                                className="w-full rounded-2xl shadow-sm border border-black/10 object-cover max-h-48"
+                              />
+                            ) : (
+                              <div className="bg-white/90 p-4 rounded-2xl border border-dashed border-slate-300 text-center text-slate-400 text-[10px]">
+                                🖼️ รูปภาพยังไม่ได้อัปโหลด
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      if (b.type === 'pdf') {
+                        return (
+                          <div key={b.id || bIdx} className="max-w-[90%]">
+                            <div className="bg-white rounded-2xl overflow-hidden shadow-md border border-slate-200">
+                              {/* PDF Flex Header */}
+                              <div className="bg-slate-900 text-white p-3 space-y-1">
+                                <div className="text-[10px] text-sky-400 font-bold flex items-center gap-1">
+                                  <span>📄</span>
+                                  <span>เอกสารแนบจากนิติบุคคล (PDF)</span>
+                                </div>
+                                <div className="font-bold text-xs text-white line-clamp-2">
+                                  {b.fileName || 'เอกสารคอนโด.pdf'}
+                                </div>
+                              </div>
+                              {/* PDF Flex Body */}
+                              <div className="p-2.5 text-[10px] text-slate-600">
+                                {b.text || 'แตะปุ่มด้านล่างเพื่อเปิดอ่านหรือดาวน์โหลดเอกสาร PDF บนมือถือ'}
+                              </div>
+                              {/* PDF Flex Button */}
+                              <div className="p-2 pt-0">
+                                <button
+                                  type="button"
+                                  className="w-full py-1.5 bg-blue-600 text-white font-bold rounded-xl text-[11px] shadow-xs flex items-center justify-center gap-1 pointer-events-none"
+                                >
+                                  <span>📥 เปิดอ่าน / ดาวน์โหลด PDF</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      return null;
+                    })}
                   </div>
                 </div>
-              </div>
 
-              {/* Bottom Home Indicator */}
-              <div className="flex justify-center mt-2">
-                <div className="w-24 h-1 bg-white/40 rounded-full" />
+                {/* Chat Fake Input Bar at Bottom */}
+                <div className="bg-slate-100 p-2 border-t border-slate-300 flex items-center gap-2 text-slate-400 text-[11px]">
+                  <span className="text-base leading-none">＋</span>
+                  <div className="flex-1 bg-white rounded-full px-3 py-1 text-slate-300 border border-slate-200">
+                    พิมพ์ข้อความ...
+                  </div>
+                  <span className="text-slate-400">🎤</span>
+                </div>
               </div>
             </div>
           </div>
