@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 2.7 - Bilingual Invoices & Receipts (TH/EN), Smart Receipt Send Tracking & Filter, Batch Receipt Push & Meter Photo LINE Webhook
+// Version 2.8 - Modular LINE OA 3-Tier Suite (Room Registration, Bot Keywords, System Message Studio with Drag & Drop & Live Phone Simulator)
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -24,6 +24,7 @@ import { BillEditModal } from '@/components/BillEditModal';
 import { MonthlyReportPrintModal } from '@/components/MonthlyReportPrintModal';
 import { MultiRoomPayModal } from '@/components/MultiRoomPayModal';
 import { BatchReceiptSendModal } from '@/components/BatchReceiptSendModal';
+import { LineSystemMessageEditor } from '@/components/LineSystemMessageEditor';
 
 const THAI_MONTHS = [
   { num: '01', label: '01 - มกราคม' },
@@ -118,7 +119,9 @@ export default function AdminCondoApp() {
   const [pwaUnitsStr, setPwaUnitsStr] = useState<string>('');
   const [pwaCostStr, setPwaCostStr] = useState<string>('');
 
-  // LINE OA Auto-Reply Rule Editor (Tab 6)
+  // LINE OA Auto-Reply Rule Editor & 3-Tier Suite (Tab 6)
+  const [lineSubTab, setLineSubTab] = useState<'rooms' | 'keywords' | 'system_messages'>('rooms');
+  const [lineRoomSearch, setLineRoomSearch] = useState('');
   const [editingRule, setEditingRule] = useState<Partial<LineAutoReplyRule> | null>(null);
   const [lineGreetingMsg, setLineGreetingMsg] = useState('');
   const [testLineCode, setTestLineCode] = useState('');
@@ -903,7 +906,6 @@ export default function AdminCondoApp() {
         { key: 'CURRENT_BILLING_PERIOD', value: staffActivePeriod },
         { key: 'LINE_CHANNEL_SECRET', value: lineSecret },
         { key: 'LINE_CHANNEL_ACCESS_TOKEN', value: lineAccessToken },
-        { key: 'LINE_GREETING_MESSAGE', value: lineGreetingMsg },
       ];
 
       for (const item of updates) {
@@ -926,7 +928,6 @@ export default function AdminCondoApp() {
         CURRENT_BILLING_PERIOD: staffActivePeriod,
         LINE_CHANNEL_SECRET: lineSecret,
         LINE_CHANNEL_ACCESS_TOKEN: lineAccessToken,
-        LINE_GREETING_MESSAGE: lineGreetingMsg,
       }));
 
       setSettingsSaved(true);
@@ -1010,7 +1011,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.7
+                  ระบบบริหารนิติบุคคล v2.8
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -2558,8 +2559,209 @@ export default function AdminCondoApp() {
             {/* ===================================================================== */}
             {activeTab === 'line' && (
               <div className="space-y-4">
-                {/* Interactive Registration & Bilingual Keyword Workflow Overview Card */}
-                <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-5 rounded-2xl shadow-sm space-y-3 text-xs">
+                {/* 3-Tier Sub-Navigation Pill Bar */}
+                <div className="bg-white p-2.5 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setLineSubTab('rooms')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        lineSubTab === 'rooms'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <span>📋 ส่วนที่ 1: จัดการผู้รับข้อมูล LINE รายห้อง</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                          lineSubTab === 'rooms' ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {lineRegisteredCount} / {rooms.length} ห้อง
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLineSubTab('keywords')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        lineSubTab === 'keywords'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <span>⚙️ ส่วนที่ 2: เมนูคีย์เวิร์ด &amp; บอทตอบอัตโนมัติ</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                          lineSubTab === 'keywords' ? 'bg-blue-500 text-white' : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {lineRules.length} กฎ
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLineSubTab('system_messages')}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                        lineSubTab === 'system_messages'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <span>💬 ส่วนที่ 3: จัดการข้อความในระบบ (Studio)</span>
+                      <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-[10px] font-bold">
+                        ลากวาง &amp; จำลองมือถือ
+                      </span>
+                    </button>
+                  </div>
+
+                  <span className="text-[11px] text-slate-500 hidden md:inline">
+                    🕒 แอดมินตอบแชท: <b>12.00 - 24.00 น.</b>
+                  </span>
+                </div>
+
+                {/* SECTION 1: Rooms Registration & Unlink */}
+                {lineSubTab === 'rooms' && (
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-xs">
+                    <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
+                      <div>
+                        <h3 className="font-bold text-slate-800 text-sm">
+                          📋 จัดการผู้รับข้อมูล LINE รายห้อง &amp; ยกเลิกการลงทะเบียน ({lineRegisteredCount} / {rooms.length} ห้อง)
+                        </h3>
+                        <p className="text-slate-500">
+                          กรณีเปลี่ยนผู้เช่า เปลี่ยนเจ้าของ หรือเปลี่ยนผู้รับข้อมูล กดปุ่ม &quot;🔓 ยกเลิกการผูก LINE&quot; เพื่อให้คนใหม่ลงทะเบียนแทนได้ทันที
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <input
+                          type="text"
+                          value={lineRoomSearch}
+                          onChange={(e) => setLineRoomSearch(e.target.value)}
+                          placeholder="🔍 ค้นหาห้อง / ชื่อ..."
+                          className="border rounded-xl px-3 py-1.5 text-xs w-40"
+                        />
+                        <input
+                          type="text"
+                          maxLength={7}
+                          value={testLineCode}
+                          onChange={(e) => setTestLineCode(e.target.value)}
+                          placeholder="ทดสอบรหัส 7 หลัก เช่น 0646273"
+                          className="border rounded-xl px-3 py-1.5 font-mono font-bold w-48 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleTestLineCode}
+                          className="px-3 py-1.5 bg-slate-800 text-white font-bold rounded-xl text-xs"
+                        >
+                          เช็ครหัส
+                        </button>
+                      </div>
+                    </div>
+
+                    {testLineResult && (
+                      <div
+                        className={`m-3 p-2.5 rounded-xl ${
+                          testLineResult.match
+                            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                            : 'bg-red-50 border border-red-200 text-red-800'
+                        }`}
+                      >
+                        {testLineResult.message}
+                      </div>
+                    )}
+
+                    <div className="max-h-96 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 text-slate-600 border-b sticky top-0">
+                          <tr>
+                            <th className="py-2.5 px-3 text-left">เลขห้อง</th>
+                            <th className="py-2.5 px-3 text-left">ชื่อผู้ติดต่อ (เจ้าของ/ผู้เช่า)</th>
+                            <th className="py-2.5 px-3 text-left">เบอร์โทรศัพท์</th>
+                            <th className="py-2.5 px-3 text-center">รหัสลงทะเบียน 7 หลัก</th>
+                            <th className="py-2.5 px-3 text-center">สถานะ LINE</th>
+                            <th className="py-2.5 px-3 text-center">จัดการผู้รับข้อมูล</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y text-slate-800">
+                          {rooms
+                            .filter((room) => {
+                              if (!lineRoomSearch.trim()) return true;
+                              const q = lineRoomSearch.trim().toLowerCase();
+                              const rNo = (room.room_no || '').toLowerCase();
+                              const owner = (room.owner_name || '').toLowerCase();
+                              const tenant = (room.tenant_name || '').toLowerCase();
+                              const phone = (room.owner_phone || room.tenant_phone || '');
+                              return (
+                                rNo.includes(q) ||
+                                owner.includes(q) ||
+                                tenant.includes(q) ||
+                                phone.includes(q)
+                              );
+                            })
+                            .map((room) => {
+                              const rawPhone = (room.owner_phone || room.tenant_phone || '').replace(/[^0-9]/g, '');
+                              const phoneSuffix = rawPhone.length >= 4 ? rawPhone.slice(-4) : '';
+                              const linePrefix = getLineRoomPrefix(room.room_no);
+                              const regCode = phoneSuffix ? `${linePrefix}${phoneSuffix}` : '-';
+                              const isLinked = !!room.line_user_id;
+
+                              return (
+                                <tr key={room.room_no} className="hover:bg-slate-50">
+                                  <td className="py-2 px-3 font-bold text-blue-700 font-mono">
+                                    {formatRoomNo(room.room_no)}
+                                  </td>
+                                  <td className="py-2 px-3">{room.owner_name || room.tenant_name || '-'}</td>
+                                  <td className="py-2 px-3 font-mono">{room.owner_phone || room.tenant_phone || '-'}</td>
+                                  <td className="py-2 px-3 text-center font-mono font-bold text-emerald-800 bg-emerald-50/40">
+                                    {regCode}
+                                  </td>
+                                  <td className="py-2 px-3 text-center">
+                                    <span
+                                      className={`px-2 py-0.5 rounded-full text-[10px] ${
+                                        isLinked
+                                          ? 'bg-emerald-100 text-emerald-800 font-bold'
+                                          : 'bg-slate-100 text-slate-500'
+                                      }`}
+                                    >
+                                      {isLinked ? '✅ ผูก LINE แล้ว' : '⏳ ยังไม่ผูก'}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-3 text-center">
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      {isLinked && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUnlinkLineRoom(room)}
+                                          className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-bold text-[11px]"
+                                        >
+                                          🔓 ยกเลิกการผูก LINE
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => setDetailRoom(room)}
+                                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium text-[11px]"
+                                      >
+                                        แก้เบอร์โทร
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* SECTION 2: Keyword Rules & Auto-Reply Bot */}
+                {lineSubTab === 'keywords' && (
+                  <div className="space-y-4">
+                    {/* Interactive Registration & Bilingual Keyword Workflow Overview Card */}
+                    <div className="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-5 rounded-2xl shadow-sm space-y-3 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-3">
                     <div>
                       <h2 className="font-bold text-sky-400 text-sm sm:text-base">
@@ -2869,119 +3071,18 @@ export default function AdminCondoApp() {
                     </table>
                   </div>
                 </div>
-
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-xs">
-                  <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
-                    <div>
-                      <h3 className="font-bold text-slate-800 text-sm">
-                        📋 จัดการผู้รับข้อมูล LINE รายห้อง & ยกเลิกการลงทะเบียน ({lineRegisteredCount} / {rooms.length} ห้อง)
-                      </h3>
-                      <p className="text-slate-500">
-                        กรณีเปลี่ยนผู้เช่า เปลี่ยนเจ้าของ หรือเปลี่ยนผู้รับข้อมูล กดปุ่ม &quot;🔓 ยกเลิกการผูก LINE&quot; เพื่อให้คนใหม่ลงทะเบียนแทนได้ทันที
-                      </p>
-                    </div>
-
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        maxLength={7}
-                        value={testLineCode}
-                        onChange={(e) => setTestLineCode(e.target.value)}
-                        placeholder="ทดสอบรหัส 7 หลัก เช่น 0646273"
-                        className="border rounded-xl px-3 py-1.5 font-mono font-bold w-48"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleTestLineCode}
-                        className="px-3 py-1.5 bg-slate-800 text-white font-bold rounded-xl"
-                      >
-                        เช็ครหัส
-                      </button>
-                    </div>
-                  </div>
-
-                  {testLineResult && (
-                    <div
-                      className={`m-3 p-2.5 rounded-xl ${
-                        testLineResult.match
-                          ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-                          : 'bg-red-50 border border-red-200 text-red-800'
-                      }`}
-                    >
-                      {testLineResult.message}
-                    </div>
-                  )}
-
-                  <div className="max-h-96 overflow-y-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-slate-50 text-slate-600 border-b sticky top-0">
-                        <tr>
-                          <th className="py-2.5 px-3 text-left">เลขห้อง</th>
-                          <th className="py-2.5 px-3 text-left">ชื่อผู้ติดต่อ (เจ้าของ/ผู้เช่า)</th>
-                          <th className="py-2.5 px-3 text-left">เบอร์โทรศัพท์</th>
-                          <th className="py-2.5 px-3 text-center">รหัสลงทะเบียน 7 หลัก</th>
-                          <th className="py-2.5 px-3 text-center">สถานะ LINE</th>
-                          <th className="py-2.5 px-3 text-center">จัดการผู้รับข้อมูล</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y text-slate-800">
-                        {rooms.map((room) => {
-                          const rawPhone = (room.owner_phone || room.tenant_phone || '').replace(/[^0-9]/g, '');
-                          const phoneSuffix = rawPhone.length >= 4 ? rawPhone.slice(-4) : '';
-                          const linePrefix = getLineRoomPrefix(room.room_no);
-                          const regCode = phoneSuffix ? `${linePrefix}${phoneSuffix}` : '-';
-                          const isLinked = !!room.line_user_id;
-
-                          return (
-                            <tr key={room.room_no} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 font-bold text-blue-700 font-mono">
-                                {formatRoomNo(room.room_no)}
-                              </td>
-                              <td className="py-2 px-3">{room.owner_name || room.tenant_name || '-'}</td>
-                              <td className="py-2 px-3 font-mono">{room.owner_phone || room.tenant_phone || '-'}</td>
-                              <td className="py-2 px-3 text-center font-mono font-bold text-emerald-800 bg-emerald-50/40">
-                                {regCode}
-                              </td>
-                              <td className="py-2 px-3 text-center">
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] ${
-                                    isLinked
-                                      ? 'bg-emerald-100 text-emerald-800 font-bold'
-                                      : 'bg-slate-100 text-slate-500'
-                                  }`}
-                                >
-                                  {isLinked ? '✅ ผูก LINE แล้ว' : '⏳ ยังไม่ผูก'}
-                                </span>
-                              </td>
-                              <td className="py-2 px-3 text-center">
-                                <div className="flex items-center justify-center gap-1.5">
-                                  {isLinked && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUnlinkLineRoom(room)}
-                                      className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-bold text-[11px]"
-                                    >
-                                      🔓 ยกเลิกการผูก LINE
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => setDetailRoom(room)}
-                                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium text-[11px]"
-                                  >
-                                    แก้เบอร์โทร
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
               </div>
             )}
+
+            {/* SECTION 3: System Message Studio */}
+            {lineSubTab === 'system_messages' && (
+              <LineSystemMessageEditor
+                config={config}
+                onSaved={() => fetchData(period)}
+              />
+            )}
+          </div>
+        )}
 
             {/* ===================================================================== */}
             {/* TAB 7: SETTINGS                                                       */}
@@ -2990,7 +3091,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.7)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.8)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
@@ -3156,16 +3257,14 @@ export default function AdminCondoApp() {
                       className="w-full border rounded-lg p-2 font-mono"
                     />
                   </div>
-                  <div>
-                    <label className="text-slate-600 block mb-1">
-                      ข้อความต้อนรับเริ่มต้นเมื่อลูกบ้านพิมพ์คำอื่นที่ไม่ตรงคีย์เวิร์ด
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={lineGreetingMsg}
-                      onChange={(e) => setLineGreetingMsg(e.target.value)}
-                      className="w-full border rounded-lg p-2"
-                    />
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 text-xs">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span>💬</span>
+                      <span>การจัดการข้อความในระบบ &amp; ข้อความต้อนรับเริ่มต้น</span>
+                    </div>
+                    <p className="text-blue-700 mt-1">
+                      ย้ายไปรวมอยู่ที่ <b>แท็บ LINE OA &gt; ส่วนที่ 3: จัดการข้อความในระบบ (Studio)</b> เรียบร้อยแล้ว พร้อมระบบ Drag &amp; Drop และจำลองหน้าจอมือถือเสมือนจริง
+                    </p>
                   </div>
                 </div>
 

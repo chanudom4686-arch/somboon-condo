@@ -163,9 +163,12 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
 
       // 0. Handle New Friend Added ("follow" event)
       if (event.type === 'follow') {
+        const welcomeText = (config.LINE_WELCOME_NEW_FRIEND || welcomeAndRegisterGuide)
+          .replace(/\{condo_name\}/g, condoName)
+          .replace(/\{admin_hours\}/g, '12.00 - 24.00 น.');
         await replyLineMessage(
           replyToken,
-          [{ type: 'text', text: welcomeAndRegisterGuide }],
+          [{ type: 'text', text: welcomeText }],
           accessToken
         );
         continue;
@@ -200,12 +203,16 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               .eq('line_user_id', lineUserId);
 
             const roomListStr = linkedRooms.map((r) => formatRoomNo(r.room_no)).join(', ');
+            const unlinkText = config.LINE_UNLINK_SUCCESS
+              ? config.LINE_UNLINK_SUCCESS.replace(/\{room_no\}/g, roomListStr).replace(/\{condo_name\}/g, condoName)
+              : `🔓 ยกเลิกการผูกบัญชี LINE กับห้อง ${roomListStr} เรียบร้อยแล้วครับ\nUnlinked LINE account from Room ${roomListStr} successfully.\n\nหากต้องการลงทะเบียนใหม่ กดริชเมนูหรือพิมพ์ "ลงทะเบียน" / "Register" ได้เลยครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`;
+
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `🔓 ยกเลิกการผูกบัญชี LINE กับห้อง ${roomListStr} เรียบร้อยแล้วครับ\nUnlinked LINE account from Room ${roomListStr} successfully.\n\nหากต้องการลงทะเบียนใหม่ กดริชเมนูหรือพิมพ์ "ลงทะเบียน" / "Register" ได้เลยครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                  text: unlinkText,
                 },
               ],
               accessToken
@@ -497,12 +504,19 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             const personName =
               firstMatched.owner_name || firstMatched.tenant_name || 'เจ้าของร่วม/ผู้พักอาศัย';
 
+            const regSuccessText = config.LINE_REG_SUCCESS
+              ? config.LINE_REG_SUCCESS
+                  .replace(/\{room_no\}/g, linkedRoomLabels)
+                  .replace(/\{owner_name\}/g, personName)
+                  .replace(/\{condo_name\}/g, condoName)
+              : `🎉 ลงทะเบียนผูกห้อง ${linkedRoomLabels} สำเร็จแล้วครับ!\nRegistration Complete for Room(s): ${linkedRoomLabels}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName}\n\n📌 คำสั่งตรวจสอบข้อมูลอัตโนมัติ (Thai / English Commands):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้ทุกห้องที่ผูกไว้ / View current bill\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Payment receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ยอดเงินระดมทุนซ่อมตึก / Maintenance fund\n• พิมพ์ "การเงิน" หรือ "finance" — สรุปรายรับ-รายจ่ายตึก / Building finance\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ช่องทางโอนเงิน / Bank account\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`;
+
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `🎉 ลงทะเบียนผูกห้อง ${linkedRoomLabels} สำเร็จแล้วครับ!\nRegistration Complete for Room(s): ${linkedRoomLabels}!\n👤 ผู้รับข้อมูล / Resident: คุณ ${personName}\n\n📌 คำสั่งตรวจสอบข้อมูลอัตโนมัติ (Thai / English Commands):\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้ทุกห้องที่ผูกไว้ / View current bill\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงิน / Payment receipt\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ประวัติชำระ 12 เดือน / 12-month history\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ยอดเงินระดมทุนซ่อมตึก / Maintenance fund\n• พิมพ์ "การเงิน" หรือ "finance" — สรุปรายรับ-รายจ่ายตึก / Building finance\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ช่องทางโอนเงิน / Bank account\n• พิมพ์ "เมนู" หรือ "menu" — ดูคำสั่งทั้งหมด / All commands\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: regSuccessText,
                 },
               ],
               accessToken
@@ -511,12 +525,18 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             const maskedSummary = pendingRooms
               .map((r) => `${formatRoomNo(r.room_no)} (${maskPhoneLast4(r.owner_phone || r.tenant_phone)})`)
               .join(', ');
+            const phoneErrText = config.LINE_REG_PHONE_ERROR
+              ? config.LINE_REG_PHONE_ERROR
+                  .replace(/\{room_no\}/g, maskedSummary)
+                  .replace(/\{masked_phone\}/g, cleanDigits)
+              : `❌ ตัวเลข 4 ตัวท้าย (${cleanDigits}) ไม่ตรงกับเบอร์โทรศัพท์ที่ลงทะเบียนไว้ของห้อง ${maskedSummary}\nThe last 4 digits (${cleanDigits}) do not match our records.\n\n• กรุณาพิมพ์ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์อีกครั้ง\n  Please enter the last 4 digits again.\n• หรือพิมพ์เลขห้องใหม่ (เช่น 001 หรือ 001,002) หากต้องการเปลี่ยนห้อง\n  Or type room number(s) again (e.g. 001 or 001,002).\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`;
+
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `❌ ตัวเลข 4 ตัวท้าย (${cleanDigits}) ไม่ตรงกับเบอร์โทรศัพท์ที่ลงทะเบียนไว้ของห้อง ${maskedSummary}\nThe last 4 digits (${cleanDigits}) do not match our records.\n\n• กรุณาพิมพ์ตัวเลข 4 ตัวท้ายของเบอร์โทรศัพท์อีกครั้ง\n  Please enter the last 4 digits again.\n• หรือพิมพ์เลขห้องใหม่ (เช่น 001 หรือ 001,002) หากต้องการเปลี่ยนห้อง\n  Or type room number(s) again (e.g. 001 or 001,002).\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: phoneErrText,
                 },
               ],
               accessToken
@@ -626,12 +646,16 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             ['system_bill', 'system_receipt', 'system_statement'].includes(mode) || wantsMeterPhoto;
 
           if (isPerRoomMode && linkedRoomsList.length === 0) {
+            const pdpaWarningText = config.LINE_PDPA_WARNING
+              ? config.LINE_PDPA_WARNING.replace(/\{condo_name\}/g, condoName)
+              : `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\nPlease register your room before viewing bills, meter photos, or statements.\n\n📌 วิธีลงทะเบียน / How to Register:\nกดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์คำว่า "ลงทะเบียน" / "Register" (หรือพิมพ์เลขห้อง เช่น 001 หรือหลายห้อง 001,002)\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`;
+
             await replyLineMessage(
               replyToken,
               [
                 {
                   type: 'text',
-                  text: `🔒 ตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) กรุณาลงทะเบียนผูกห้องชุดก่อนดูข้อมูลบิล รูปมิเตอร์ และสเตทเมนท์ครับ\nPlease register your room before viewing bills, meter photos, or statements.\n\n📌 วิธีลงทะเบียน / How to Register:\nกดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์คำว่า "ลงทะเบียน" / "Register" (หรือพิมพ์เลขห้อง เช่น 001 หรือหลายห้อง 001,002)\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  text: pdpaWarningText,
                 },
               ],
               accessToken
