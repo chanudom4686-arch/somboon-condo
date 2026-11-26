@@ -1,5 +1,5 @@
 // Helper utilities for LINE OA System Messages (Multi-bubble, Image, and PDF support)
-// Version 2.9 - Somboon Condo Town 645
+// Version 2.10 - Somboon Condo Town 645
 
 export type LineMessageBubbleType = 'text' | 'image' | 'pdf';
 
@@ -38,8 +38,24 @@ export const DEFAULT_LINE_TEMPLATES: Record<
       { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
     ],
   },
+  LINE_REG_PROMPT_ROOM: {
+    title: 'ขั้นตอนลงทะเบียน (1): เมื่อกดปุ่ม "ลงทะเบียน" แล้วบอทถามหาเลขห้อง',
+    badge: '📝 เริ่มต้นลงทะเบียน',
+    description: 'ส่งหาลูกบ้านทันทีที่กดปุ่ม "ลงทะเบียน" บนริชเมนู หรือพิมพ์คำว่า "ลงทะเบียน" เพื่อแนะนำให้พิมพ์เลขห้อง',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `📝 เริ่มต้นการลงทะเบียนผูกห้องชุด (ขั้นตอนที่ 1/2)\nRoom Registration (Step 1/2)\n\n👉 กรุณาพิมพ์ "เลขห้อง" ของท่านส่งมาในแชทนี้ครับ\n• กรณีห้องเดียว พิมพ์เช่น: 001 (หรือห้องคู่ 64-65)\n• กรณีมีหลายห้อง ให้พิมพ์คั่นด้วยลูกน้ำ (,) เช่น: 001,002,005\n\nPlease enter your Room Number:\n• Single room: e.g. 001 (or 64-65)\n• Multiple rooms (comma-separated): e.g. 001,002,005\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
+    ],
+  },
   LINE_REG_PROMPT_PHONE: {
-    title: 'ขั้นตอนลงทะเบียน (1): เมื่อพิมพ์เลขห้องแล้วถามหาเบอร์ 4 ตัวท้าย',
+    title: 'ขั้นตอนลงทะเบียน (2): เมื่อพิมพ์เลขห้องแล้วถามหาเบอร์ 4 ตัวท้าย',
     badge: '📱 ขอเบอร์ยืนยัน',
     description: 'ส่งหาลูกบ้านเพื่อยืนยันตัวตนตามหลักความปลอดภัย PDPA เมื่อลูกบ้านพิมพ์เลขห้องเข้ามา',
     defaultBubbles: [
@@ -56,7 +72,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
     ],
   },
   LINE_REG_SUCCESS: {
-    title: 'ขั้นตอนลงทะเบียน (2): เมื่อยืนยันเบอร์ถูกต้องและผูกห้องสำเร็จ',
+    title: 'ขั้นตอนลงทะเบียน (3): เมื่อยืนยันเบอร์ถูกต้องและผูกห้องสำเร็จ',
     badge: '🎉 ผูกห้องสำเร็จ',
     description: 'ส่งแจ้งลูกบ้านทันทีที่ยืนยันเบอร์โทรศัพท์ 4 ตัวท้ายตรงกับข้อมูลในระบบ พร้อมแสดงเมนูคำสั่ง',
     defaultBubbles: [
@@ -73,7 +89,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
     ],
   },
   LINE_REG_PHONE_ERROR: {
-    title: 'ขั้นตอนลงทะเบียน (3): เมื่อพิมพ์เลข 4 ตัวท้ายไม่ตรง',
+    title: 'ขั้นตอนลงทะเบียน: เมื่อพิมพ์เลข 4 ตัวท้ายไม่ตรง (Phone Mismatch)',
     badge: '❌ เบอร์ไม่ตรง',
     description: 'ส่งแจ้งเตือนเมื่อลูกบ้านกรอกเลข 4 ตัวท้ายไม่ตรงกับฐานข้อมูลของห้องชุดนั้นๆ',
     defaultBubbles: [
@@ -86,6 +102,40 @@ export const DEFAULT_LINE_TEMPLATES: Record<
     allowedTags: [
       { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
       { tag: '{masked_phone}', label: 'เบอร์ซ่อนท้าย', desc: '089-xxx-6273' },
+    ],
+  },
+  LINE_REG_ROOM_NOT_FOUND: {
+    title: 'ขั้นตอนลงทะเบียน: เมื่อพิมพ์เลขห้องที่ไม่พบในระบบ (Room Not Found)',
+    badge: '⚠️ ไม่พบเลขห้อง',
+    description: 'ส่งแจ้งเตือนเมื่อลูกบ้านพิมพ์เลขห้องที่ไม่มีอยู่ในฐานข้อมูลคอนโด หรือพิมพ์รูปแบบผิด',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `⚠️ ไม่พบข้อมูลห้อง {room_no} ในระบบคอนโดครับ\nRoom not found.\n\nกรุณาพิมพ์เลขห้อง 3 หลักอีกครั้ง (เช่น 001 หรือกรณีมีหลายห้อง 001,002)\nPlease enter valid room number(s) (e.g. 001 or 001,002).\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{room_no}', label: 'เลขห้องที่พิมพ์', desc: '999' },
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
+    ],
+  },
+  LINE_REG_NO_PHONE_IN_ROOM: {
+    title: 'ขั้นตอนลงทะเบียน: เมื่อพบห้องชุด แต่ห้องยังไม่มีเบอร์โทรในระบบ',
+    badge: '📞 ห้องยังไม่มีเบอร์',
+    description: 'ส่งแจ้งลูกบ้านเมื่อพบข้อมูลห้องในระบบ แต่ห้องนั้นยังไม่เคยมีเบอร์โทรศัพท์บันทึกไว้ เพื่อให้ลูกบ้านทิ้งเบอร์ไว้ให้แอดมิน',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `🏢 พบข้อมูลห้องชุด {room_no} ในระบบ\nRoom Info: {room_no}\n\n⚠️ ห้องชุดนี้ยังไม่มีเบอร์โทรศัพท์บันทึกไว้ในระบบนิติบุคคลครับ\nกรุณาพิมพ์ "ชื่อ-นามสกุล และ เบอร์โทรศัพท์" ของท่านทิ้งไว้ในแชทนี้ เพื่อให้เจ้าหน้าที่แอดมินบันทึกข้อมูลให้ครับ\n\nNo phone number is registered for this room yet. Please leave your name and phone number in this chat for our admin.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
     ],
   },
   LINE_PDPA_WARNING: {
@@ -101,12 +151,13 @@ export const DEFAULT_LINE_TEMPLATES: Record<
     ],
     allowedTags: [
       { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
     ],
   },
   LINE_UNLINK_SUCCESS: {
     title: 'ข้อความยืนยันเมื่อพิมพ์ "ยกเลิกผูกห้อง" (Unlink Complete)',
     badge: '🔓 ยกเลิกผูกห้อง',
-    description: 'ส่งแจ้งยืนยันเมื่อลูกบ้านพิมพ์คำว่า "ยกเลิกผูกห้อง", "ยกเลิกลงทะเบียน" หรือ "unlink"',
+    description: 'ส่งแจ้งยืนยันเมื่อลูกบ้านพิมพ์คำว่า "ยกเลิกผูกห้อง", "ยกเลิกลงทะเบียน" หรือ "unlink" และทำการปลดล็อคสำเร็จ',
     defaultBubbles: [
       {
         id: '1',
@@ -117,6 +168,23 @@ export const DEFAULT_LINE_TEMPLATES: Record<
     allowedTags: [
       { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
       { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
+    ],
+  },
+  LINE_UNLINK_NOT_LINKED: {
+    title: 'ข้อความเมื่อพิมพ์ "ยกเลิกผูกห้อง" แต่ยังไม่เคยผูกห้องชุดใดๆ',
+    badge: 'ℹ️ ยังไม่ได้ผูกห้อง',
+    description: 'ส่งแจ้งลูกบ้านเมื่อพิมพ์คำว่า "ยกเลิกผูกห้อง" แต่บัญชี LINE นั้นยังไม่เคยมีประวัติผูกกับห้องใดในระบบ',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `ℹ️ บัญชี LINE ของคุณยังไม่ได้ผูกกับห้องชุดใดในระบบครับ\nYour LINE account is not linked to any room yet.\n\n📌 หากต้องการผูกห้องชุด:\nกดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์ "ลงทะเบียน" / "Register" ได้เลยครับ\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
     ],
   },
 };

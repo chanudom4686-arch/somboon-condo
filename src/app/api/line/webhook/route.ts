@@ -236,14 +236,24 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               accessToken
             );
           } else {
+            const notLinkedBubbles = parseConfigToBubbles(
+              config.LINE_UNLINK_NOT_LINKED,
+              DEFAULT_LINE_TEMPLATES.LINE_UNLINK_NOT_LINKED.defaultBubbles
+            );
+            const notLinkedMessages = buildLineMessagesFromBubbles(notLinkedBubbles, {
+              condo_name: condoName,
+              admin_hours: '12.00 - 24.00 น.',
+            });
             await replyLineMessage(
               replyToken,
-              [
-                {
-                  type: 'text',
-                  text: `บัญชี LINE ของคุณยังไม่ได้ผูกกับห้องชุดใดในระบบครับ (Your LINE account is not linked to any room yet.)\n\nพิมพ์ "ลงทะเบียน" หรือ "Register" เพื่อเริ่มต้นผูกห้องชุดได้เลยครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
-                },
-              ],
+              notLinkedMessages.length > 0
+                ? notLinkedMessages
+                : [
+                    {
+                      type: 'text',
+                      text: `บัญชี LINE ของคุณยังไม่ได้ผูกกับห้องชุดใดในระบบครับ (Your LINE account is not linked to any room yet.)\n\nพิมพ์ "ลงทะเบียน" หรือ "Register" เพื่อเริ่มต้นผูกห้องชุดได้เลยครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                    },
+                  ],
               accessToken
             );
           }
@@ -265,14 +275,25 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               { onConflict: 'key' }
             );
 
+          const promptRoomBubbles = parseConfigToBubbles(
+            config.LINE_REG_PROMPT_ROOM,
+            DEFAULT_LINE_TEMPLATES.LINE_REG_PROMPT_ROOM.defaultBubbles
+          );
+          const promptRoomMessages = buildLineMessagesFromBubbles(promptRoomBubbles, {
+            condo_name: condoName,
+            admin_hours: '12.00 - 24.00 น.',
+          });
+
           await replyLineMessage(
             replyToken,
-            [
-              {
-                type: 'text',
-                text: `📝 เริ่มต้นการลงทะเบียนผูกห้องชุด (ขั้นตอนที่ 1/2)\nRoom Registration (Step 1/2)\n\n👉 กรุณาพิมพ์ "เลขห้อง" ของท่านส่งมาในแชทนี้ครับ\n• กรณีห้องเดียว พิมพ์เช่น: 001 (หรือห้องคู่ 64-65)\n• กรณีมีหลายห้อง ให้พิมพ์คั่นด้วยลูกน้ำ (,) ไปเรื่อยๆ เช่น: 001,002,005\n\nPlease enter your Room Number:\n• Single room: e.g. 001 (or 64-65)\n• Multiple rooms (comma-separated): e.g. 001,002,005\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
-              },
-            ],
+            promptRoomMessages.length > 0
+              ? promptRoomMessages
+              : [
+                  {
+                    type: 'text',
+                    text: `📝 เริ่มต้นการลงทะเบียนผูกห้องชุด (ขั้นตอนที่ 1/2)\nRoom Registration (Step 1/2)\n\n👉 กรุณาพิมพ์ "เลขห้อง" ของท่านส่งมาในแชทนี้ครับ\n• กรณีห้องเดียว พิมพ์เช่น: 001 (หรือห้องคู่ 64-65)\n• กรณีมีหลายห้อง ให้พิมพ์คั่นด้วยลูกน้ำ (,) ไปเรื่อยๆ เช่น: 001,002,005\n\nPlease enter your Room Number:\n• Single room: e.g. 001 (or 64-65)\n• Multiple rooms (comma-separated): e.g. 001,002,005\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                  },
+                ],
             accessToken
           );
           continue;
@@ -291,14 +312,26 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           const foundRooms = foundRoomsData || [];
 
           if (foundRooms.length === 0 || roomErr) {
+            const notFoundBubbles = parseConfigToBubbles(
+              config.LINE_REG_ROOM_NOT_FOUND,
+              DEFAULT_LINE_TEMPLATES.LINE_REG_ROOM_NOT_FOUND.defaultBubbles
+            );
+            const notFoundMessages = buildLineMessagesFromBubbles(notFoundBubbles, {
+              room_no: parsedRoomNos.map((r) => formatRoomNo(r)).join(', '),
+              condo_name: condoName,
+              admin_hours: '12.00 - 24.00 น.',
+            });
+
             await replyLineMessage(
               replyToken,
-              [
-                {
-                  type: 'text',
-                  text: `⚠️ ไม่พบข้อมูลห้อง ${parsedRoomNos.map((r) => formatRoomNo(r)).join(', ')} ในระบบ\nRoom not found.\n\nกรุณาพิมพ์เลขห้อง 3 หลักอีกครั้ง (เช่น 001 หรือหลายห้อง 001,002)\nPlease enter valid room numbers (e.g. 001 or 001,002).\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
-                },
-              ],
+              notFoundMessages.length > 0
+                ? notFoundMessages
+                : [
+                    {
+                      type: 'text',
+                      text: `⚠️ ไม่พบข้อมูลห้อง ${parsedRoomNos.map((r) => formatRoomNo(r)).join(', ')} ในระบบ\nRoom not found.\n\nกรุณาพิมพ์เลขห้อง 3 หลักอีกครั้ง (เช่น 001 หรือหลายห้อง 001,002)\nPlease enter valid room numbers (e.g. 001 or 001,002).\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                    },
+                  ],
               accessToken
             );
             continue;
@@ -325,14 +358,26 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               .map((r) => `• ห้อง ${formatRoomNo(r.room_no)} (${r.owner_name || r.tenant_name || 'เจ้าของห้อง'})`)
               .join('\n');
 
+            const noPhoneBubbles = parseConfigToBubbles(
+              config.LINE_REG_NO_PHONE_IN_ROOM,
+              DEFAULT_LINE_TEMPLATES.LINE_REG_NO_PHONE_IN_ROOM.defaultBubbles
+            );
+            const noPhoneMessages = buildLineMessagesFromBubbles(noPhoneBubbles, {
+              room_no: roomsWithoutPhone.map((r) => formatRoomNo(r.room_no)).join(', '),
+              condo_name: condoName,
+              admin_hours: '12.00 - 24.00 น.',
+            });
+
             await replyLineMessage(
               replyToken,
-              [
-                {
-                  type: 'text',
-                  text: `🏢 ข้อมูลห้องชุด / Room Info:\n${noPhoneDetails}\n\n⚠️ ห้องข้างต้นยังไม่มีเบอร์โทรศัพท์บันทึกในระบบ กรุณาพิมพ์ชื่อและเบอร์โทรศัพท์ของท่านทิ้งไว้ในแชทนี้ เพื่อให้แอดมินบันทึกข้อมูลให้ครับ\nNo phone number is registered for the room(s) above yet. Please leave your name and phone number in this chat for our admin.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
-                },
-              ],
+              noPhoneMessages.length > 0
+                ? noPhoneMessages
+                : [
+                    {
+                      type: 'text',
+                      text: `🏢 ข้อมูลห้องชุด / Room Info:\n${noPhoneDetails}\n\n⚠️ ห้องข้างต้นยังไม่มีเบอร์โทรศัพท์บันทึกในระบบ กรุณาพิมพ์ชื่อและเบอร์โทรศัพท์ของท่านทิ้งไว้ในแชทนี้ เพื่อให้แอดมินบันทึกข้อมูลให้ครับ\nNo phone number is registered for the room(s) above yet. Please leave your name and phone number in this chat for our admin.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+                    },
+                  ],
               accessToken
             );
             continue;
@@ -603,14 +648,26 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             .maybeSingle();
 
           if (!roomData || roomErr) {
+            const notFoundBubbles = parseConfigToBubbles(
+              config.LINE_REG_ROOM_NOT_FOUND,
+              DEFAULT_LINE_TEMPLATES.LINE_REG_ROOM_NOT_FOUND.defaultBubbles
+            );
+            const notFoundMessages = buildLineMessagesFromBubbles(notFoundBubbles, {
+              room_no: formatRoomNo(roomPrefix),
+              condo_name: condoName,
+              admin_hours: '12.00 - 24.00 น.',
+            });
+
             await replyLineMessage(
               replyToken,
-              [
-                {
-                  type: 'text',
-                  text: `⚠️ ไม่พบข้อมูลห้องเลขที่ ${formatRoomNo(roomPrefix)}\nโปรดพิมพ์คำว่า "ลงทะเบียน" หรือ "Register" เพื่อเริ่มต้นลงทะเบียนทีละขั้นตอนครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
-                },
-              ],
+              notFoundMessages.length > 0
+                ? notFoundMessages
+                : [
+                    {
+                      type: 'text',
+                      text: `⚠️ ไม่พบข้อมูลห้องเลขที่ ${formatRoomNo(roomPrefix)}\nโปรดพิมพ์คำว่า "ลงทะเบียน" หรือ "Register" เพื่อเริ่มต้นลงทะเบียนทีละขั้นตอนครับ\n🕒 เวลาทำการแอดมิน / Admin Hours: 12.00 - 24.00 น.`,
+                    },
+                  ],
               accessToken
             );
             continue;
