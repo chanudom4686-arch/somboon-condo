@@ -223,7 +223,9 @@ export function calculateBill(
   specialItemsNote = '',
   outstandingBalance = 0,
   explicitPrevMeter?: number,
-  lateFee = 0
+  lateFee = 0,
+  explicitContributionDeducted?: number,
+  explicitPrepaidDeducted?: number
 ): BillCalculationResult {
   const prevMeter =
     explicitPrevMeter !== undefined && !Number.isNaN(Number(explicitPrevMeter))
@@ -241,8 +243,14 @@ export function calculateBill(
   const commonFee = getCommonFeeForRoom(room, config);
 
   // 1. Contribution credit deduction (Only deducts from common fee!)
+  // If explicitly overridden by admin, use explicit amount. Otherwise default to 0 (pending condo agreement).
   const contributionBefore = Number(room.contribution_credit) || 0;
-  const contributionDeducted = Math.min(commonFee, Math.max(0, contributionBefore));
+  let contributionDeducted = 0;
+  if (explicitContributionDeducted !== undefined && !Number.isNaN(Number(explicitContributionDeducted))) {
+    contributionDeducted = Math.min(commonFee, Math.min(contributionBefore, Math.max(0, Number(explicitContributionDeducted))));
+  } else {
+    contributionDeducted = 0;
+  }
   const contributionAfter = contributionBefore - contributionDeducted;
   const netCommonFee = commonFee - contributionDeducted;
 
@@ -251,7 +259,10 @@ export function calculateBill(
 
   // 3. Prepaid deposit deduction
   const prepaidBefore = Number(room.prepaid_credit) || 0;
-  const prepaidDeducted = Math.min(subtotal, Math.max(0, prepaidBefore));
+  const prepaidDeducted =
+    explicitPrepaidDeducted !== undefined && !Number.isNaN(Number(explicitPrepaidDeducted))
+      ? Math.min(subtotal, Math.min(prepaidBefore, Math.max(0, Number(explicitPrepaidDeducted))))
+      : Math.min(subtotal, Math.max(0, prepaidBefore));
   const prepaidAfter = prepaidBefore - prepaidDeducted;
 
   // 4. Total Amount Due
@@ -265,10 +276,15 @@ export function calculateBill(
   const dueDate = `${String(dueDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
 
   // LINE verification code: 3 digits room prefix + last 4 digits of phone (e.g. 0646273)
-  const rawPhone = (room.owner_phone || room.tenant_phone || '').replace(/[^0-9]/g, '');
-  const phoneSuffix = rawPhone.length >= 4 ? rawPhone.slice(-4) : '';
+  // Supports multiple phone numbers per room
+  const phones = (room.owner_phone || room.tenant_phone || '')
+    .split(/[,/]/)
+    .map((p) => p.replace(/[^0-9]/g, ''))
+    .filter((p) => p.length >= 4);
   const linePrefix = getLineRoomPrefix(room.room_no);
-  const lineRegCode = phoneSuffix ? `${linePrefix}${phoneSuffix}` : `${linePrefix}XXXX`;
+  const lineRegCode = phones.length > 0
+    ? phones.map((p) => `${linePrefix}${p.slice(-4)}`).join(', ')
+    : `${linePrefix}XXXX`;
 
   return {
     room_no: room.room_no,

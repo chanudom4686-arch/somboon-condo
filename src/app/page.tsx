@@ -25,6 +25,7 @@ import { MonthlyReportPrintModal } from '@/components/MonthlyReportPrintModal';
 import { MultiRoomPayModal } from '@/components/MultiRoomPayModal';
 import { BatchReceiptSendModal } from '@/components/BatchReceiptSendModal';
 import { LineSystemMessageEditor } from '@/components/LineSystemMessageEditor';
+import { BatchDeductionModal } from '@/components/BatchDeductionModal';
 
 const THAI_MONTHS = [
   { num: '01', label: '01 - มกราคม' },
@@ -105,6 +106,7 @@ export default function AdminCondoApp() {
   const [lightboxRoom, setLightboxRoom] = useState<Room | null>(null);
   const [readingModalRoom, setReadingModalRoom] = useState<Room | null>(null);
   const [billEditRoom, setBillEditRoom] = useState<Room | null>(null);
+  const [batchDeductionModalOpen, setBatchDeductionModalOpen] = useState(false);
   const [detailRoom, setDetailRoom] = useState<Room | null>(null);
   const [paymentRoom, setPaymentRoom] = useState<Room | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -399,7 +401,10 @@ export default function AdminCondoApp() {
         log?.special_items_note || log?.note || '',
         Number(room.outstanding_balance) || 0,
         prev,
-        log ? Number(log.late_fee) || 0 : 0
+        log ? Number(log.late_fee) || 0 : 0,
+        log && log.contribution_deducted !== undefined && log.contribution_deducted !== null
+          ? Number(log.contribution_deducted)
+          : 0
       );
     });
   }, [rooms, logMap, period, config]);
@@ -507,7 +512,10 @@ export default function AdminCondoApp() {
         log?.special_items_note || log?.note || '',
         Number(room.outstanding_balance) || 0,
         prevMeter,
-        log ? Number(log.late_fee) || 0 : 0
+        log ? Number(log.late_fee) || 0 : 0,
+        log && log.contribution_deducted !== undefined && log.contribution_deducted !== null
+          ? Number(log.contribution_deducted)
+          : 0
       );
 
       const { data: savedLog, error: logErr } = await supabase
@@ -867,11 +875,11 @@ export default function AdminCondoApp() {
       return;
     }
 
-    const ownerClean = (room.owner_phone || '').replace(/[^0-9]/g, '');
-    const tenantClean = (room.tenant_phone || '').replace(/[^0-9]/g, '');
+    const oPhones = (room.owner_phone || '').split(/[,/]/).map((p) => p.replace(/[^0-9]/g, '')).filter((p) => p.length >= 4);
+    const tPhones = (room.tenant_phone || '').split(/[,/]/).map((p) => p.replace(/[^0-9]/g, '')).filter((p) => p.length >= 4);
 
-    const matchOwner = ownerClean.length >= 4 && ownerClean.endsWith(phoneSuffix);
-    const matchTenant = tenantClean.length >= 4 && tenantClean.endsWith(phoneSuffix);
+    const matchOwner = oPhones.some((p) => p.endsWith(phoneSuffix));
+    const matchTenant = tPhones.some((p) => p.endsWith(phoneSuffix));
 
     if (matchOwner || matchTenant) {
       setTestLineResult({
@@ -1614,6 +1622,14 @@ export default function AdminCondoApp() {
                     >
                       🔔 ส่งข้อความแจ้งเตือนที่เลือก ({selectedRooms.length})
                     </button>
+                    <button
+                      type="button"
+                      disabled={selectedRooms.length === 0}
+                      onClick={() => setBatchDeductionModalOpen(true)}
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl disabled:opacity-40 shadow-xs"
+                    >
+                      💰 จัดการลดหย่อนที่เลือก ({selectedRooms.length})
+                    </button>
                   </div>
                 </div>
 
@@ -1680,7 +1696,7 @@ export default function AdminCondoApp() {
                           <th className="py-2.5 px-2 text-right">ค่าบำบัด (5 บ.)</th>
                           <th className="py-2.5 px-2 text-right">ส่วนกลาง</th>
                           <th className="py-2.5 px-2 text-right">รายการเพิ่ม/ส่วนลด</th>
-                          <th className="py-2.5 px-2 text-right">หักเครดิต/เงินฝาก</th>
+                          <th className="py-2.5 px-2 text-right">ลดหย่อน (เงินสมทบ)</th>
                           <th className="py-2.5 px-2 text-right font-bold">ยอดสุทธิ</th>
                           <th className="py-2.5 px-2 text-center">สถานะ LINE</th>
                           <th className="py-2.5 px-2 text-center">จัดการบิล / พิมพ์บิล / ส่ง LINE</th>
@@ -1756,10 +1772,19 @@ export default function AdminCondoApp() {
                                   <span className="text-slate-300">-</span>
                                 )}
                               </td>
-                              <td className="py-2 px-2 text-right font-mono text-emerald-600">
-                                {bill.contribution_deducted + bill.prepaid_deducted > 0
-                                  ? `-${(bill.contribution_deducted + bill.prepaid_deducted).toFixed(2)}`
-                                  : '-'}
+                              <td className="py-2 px-2 text-right font-mono">
+                                {bill.contribution_deducted > 0 ? (
+                                  <div className="text-emerald-700 font-bold">
+                                    -{bill.contribution_deducted.toFixed(2)}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-300">-</span>
+                                )}
+                                {Number(room.contribution_credit) > 0 && (
+                                  <div className="text-[10px] text-emerald-600 font-semibold" title="ยอดเงินสมทบสะสมทั้งหมด">
+                                    สะสม: {Number(room.contribution_credit).toLocaleString()} บ.
+                                  </div>
+                                )}
                               </td>
                               <td className="py-2 px-2 text-right font-mono font-bold text-blue-700">
                                 {bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
@@ -2696,10 +2721,14 @@ export default function AdminCondoApp() {
                               );
                             })
                             .map((room) => {
-                              const rawPhone = (room.owner_phone || room.tenant_phone || '').replace(/[^0-9]/g, '');
-                              const phoneSuffix = rawPhone.length >= 4 ? rawPhone.slice(-4) : '';
+                              const phones = (room.owner_phone || room.tenant_phone || '')
+                                .split(/[,/]/)
+                                .map((p) => p.replace(/[^0-9]/g, ''))
+                                .filter((p) => p.length >= 4);
                               const linePrefix = getLineRoomPrefix(room.room_no);
-                              const regCode = phoneSuffix ? `${linePrefix}${phoneSuffix}` : '-';
+                              const regCode = phones.length > 0
+                                ? phones.map((p) => `${linePrefix}${p.slice(-4)}`).join(', ')
+                                : '-';
                               const isLinked = !!room.line_user_id;
 
                               return (
@@ -3371,7 +3400,10 @@ export default function AdminCondoApp() {
             log?.special_items_note || log?.note || '',
             Number(lightboxRoom.outstanding_balance) || 0,
             prevNum,
-            log ? Number(log.late_fee) || 0 : 0
+            log ? Number(log.late_fee) || 0 : 0,
+            log && log.contribution_deducted !== undefined && log.contribution_deducted !== null
+              ? Number(log.contribution_deducted)
+              : 0
           );
 
           return (
@@ -3629,6 +3661,21 @@ export default function AdminCondoApp() {
           allRooms={rooms}
           onClose={() => setBillEditRoom(null)}
           onSaved={() => {
+            fetchData(period);
+          }}
+        />
+      )}
+
+      {/* MODAL: BATCH DEDUCTION */}
+      {batchDeductionModalOpen && (
+        <BatchDeductionModal
+          selectedRoomNos={selectedRooms}
+          allRooms={rooms}
+          logMap={logMap}
+          period={period}
+          config={config}
+          onClose={() => setBatchDeductionModalOpen(false)}
+          onSuccess={() => {
             fetchData(period);
           }}
         />

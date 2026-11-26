@@ -46,9 +46,10 @@ async function replyLineMessage(replyToken: string, messages: any[], accessToken
 }
 
 // Mask the last 4 digits of a phone number with XXXX (e.g. "081-234-6273" -> "081-234-XXXX")
-function maskPhoneLast4(phone?: string | null): string {
-  const digits = (phone || '').replace(/[^0-9]/g, '');
-  if (digits.length < 4) return 'ไม่มีข้อมูลเบอร์โทร / No Phone';
+// Supports multiple phone numbers separated by comma or slash
+function maskSinglePhone(phoneStr: string): string {
+  const digits = phoneStr.replace(/[^0-9]/g, '');
+  if (digits.length < 4) return '';
   const prefix = digits.slice(0, digits.length - 4);
   if (prefix.length === 6) {
     return `${prefix.slice(0, 3)}-${prefix.slice(3, 6)}-XXXX`;
@@ -57,6 +58,23 @@ function maskPhoneLast4(phone?: string | null): string {
     return `${prefix.slice(0, 3)}-${prefix.slice(3)}-XXXX`;
   }
   return `${prefix}XXXX`;
+}
+
+function maskPhoneLast4(phone?: string | null): string {
+  if (!phone || !phone.trim()) return 'ไม่มีข้อมูลเบอร์โทร / No Phone';
+  const parts = phone.split(/[,/]/).map((p: string) => p.trim()).filter(Boolean);
+  const maskedParts = parts.map(maskSinglePhone).filter(Boolean);
+  if (maskedParts.length === 0) return 'ไม่มีข้อมูลเบอร์โทร / No Phone';
+  return maskedParts.join(', ');
+}
+
+// Extract clean numeric phone numbers (at least 4 digits) from a comma/slash separated string
+function extractCleanPhones(phoneStr?: string | null): string[] {
+  if (!phoneStr) return [];
+  return String(phoneStr)
+    .split(/[,/]/)
+    .map((p: string) => p.replace(/[^0-9]/g, ''))
+    .filter((p: string) => p.length >= 4);
 }
 
 // Parse a single room token (e.g. "001", "1", "645/001", "64-65", "064-065")
@@ -338,15 +356,15 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           }
 
           const roomsWithPhone = foundRooms.filter((r) => {
-            const oClean = (r.owner_phone || '').replace(/[^0-9]/g, '');
-            const tClean = (r.tenant_phone || '').replace(/[^0-9]/g, '');
-            return oClean.length >= 4 || tClean.length >= 4;
+            const oPhones = extractCleanPhones(r.owner_phone);
+            const tPhones = extractCleanPhones(r.tenant_phone);
+            return oPhones.length > 0 || tPhones.length > 0;
           });
 
           const roomsWithoutPhone = foundRooms.filter((r) => {
-            const oClean = (r.owner_phone || '').replace(/[^0-9]/g, '');
-            const tClean = (r.tenant_phone || '').replace(/[^0-9]/g, '');
-            return oClean.length < 4 && tClean.length < 4;
+            const oPhones = extractCleanPhones(r.owner_phone);
+            const tPhones = extractCleanPhones(r.tenant_phone);
+            return oPhones.length === 0 && tPhones.length === 0;
           });
 
           if (roomsWithPhone.length === 0) {
@@ -394,10 +412,10 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
 
           const roomSummaryLines: string[] = [];
           roomsWithPhone.forEach((r, idx) => {
-            const oClean = (r.owner_phone || '').replace(/[^0-9]/g, '');
-            const tClean = (r.tenant_phone || '').replace(/[^0-9]/g, '');
-            const hasOwnerPhone = oClean.length >= 4;
-            const hasTenantPhone = tClean.length >= 4;
+            const oPhones = extractCleanPhones(r.owner_phone);
+            const tPhones = extractCleanPhones(r.tenant_phone);
+            const hasOwnerPhone = oPhones.length > 0;
+            const hasTenantPhone = tPhones.length > 0;
 
             if (roomsWithPhone.length === 1) {
               roomSummaryLines.push(`🏢 ห้องชุด / Room: ${formatRoomNo(r.room_no)}`);
@@ -508,11 +526,11 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           }
 
           const matchedRooms = pendingRooms.filter((r) => {
-            const oClean = (r.owner_phone || '').replace(/[^0-9]/g, '');
-            const tClean = (r.tenant_phone || '').replace(/[^0-9]/g, '');
+            const oPhones = extractCleanPhones(r.owner_phone);
+            const tPhones = extractCleanPhones(r.tenant_phone);
             return (
-              (oClean.length >= 4 && oClean.endsWith(cleanDigits)) ||
-              (tClean.length >= 4 && tClean.endsWith(cleanDigits))
+              oPhones.some((p: string) => p.endsWith(cleanDigits)) ||
+              tPhones.some((p: string) => p.endsWith(cleanDigits))
             );
           });
 
@@ -673,10 +691,10 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             continue;
           }
 
-          const cleanOwnerPhone = (roomData.owner_phone || '').replace(/[^0-9]/g, '');
-          const cleanTenantPhone = (roomData.tenant_phone || '').replace(/[^0-9]/g, '');
-          const ownerMatch = cleanOwnerPhone.length >= 4 && cleanOwnerPhone.endsWith(phoneSuffix);
-          const tenantMatch = cleanTenantPhone.length >= 4 && cleanTenantPhone.endsWith(phoneSuffix);
+          const ownerPhones = extractCleanPhones(roomData.owner_phone);
+          const tenantPhones = extractCleanPhones(roomData.tenant_phone);
+          const ownerMatch = ownerPhones.some((p: string) => p.endsWith(phoneSuffix));
+          const tenantMatch = tenantPhones.some((p: string) => p.endsWith(phoneSuffix));
 
           if (ownerMatch || tenantMatch) {
             await supabase
@@ -952,8 +970,9 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           const finalReply = renderedTexts.join('\n\n━━━━━━━━━━━━━━\n\n');
           const replyBubbles: any[] = [];
 
-          // 1. If querying bill (mode === 'system_bill' or 'ดูบิล' / 'bill'), attach meter dial photo(s)
-          if (mode === 'system_bill' || wantsMeterPhoto || text.includes('ดูบิล') || text.toLowerCase().includes('bill')) {
+          // 1. Meter dial photo(s) are attached ONLY if user explicitly asked for meter photo
+          // NOTE: Never attach meter photo when viewing bills ("ดูบิล" / "bill")
+          if (wantsMeterPhoto) {
             for (const pUrl of photoUrls) {
               if (pUrl && pUrl.startsWith('https://')) {
                 replyBubbles.push({

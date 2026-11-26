@@ -90,9 +90,11 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
   const initialPrev = meterLog ? Number(meterLog.prev_meter) : Number(room.latest_meter) || 0;
   const initialCurr = meterLog ? Number(meterLog.curr_meter) : initialPrev;
   const initialSpecial = meterLog ? Number(meterLog.special_items) || 0 : 0;
+  const initialContribDeducted = meterLog ? Number(meterLog.contribution_deducted) || 0 : 0;
 
   const [prevMeterStr, setPrevMeterStr] = useState(String(initialPrev));
   const [currMeterStr, setCurrMeterStr] = useState(String(initialCurr));
+  const [contributionDeductedStr, setContributionDeductedStr] = useState(String(initialContribDeducted));
 
   // Multi-item state list
   const [items, setItems] = useState<CustomBillLineItem[]>(() =>
@@ -131,6 +133,9 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
     })
     .join(' | ');
 
+  const totalContributionAvailable = Number(room.contribution_credit) || 0;
+  const contributionDeducted = Math.max(0, Number(contributionDeductedStr) || 0);
+
   const previewBill = calculateBill(
     room,
     currMeter,
@@ -140,7 +145,8 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
     serializedSpecialNote,
     outstandingBalance,
     prevMeter,
-    lateFee
+    lateFee,
+    contributionDeducted
   );
 
   const suggested = calculateSuggestedLateFee(
@@ -225,7 +231,8 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
         finalSpecialNote,
         outstandingBalance,
         prevMeter,
-        lateFee
+        lateFee,
+        contributionDeducted
       );
 
       const { error: logErr } = await supabase
@@ -611,7 +618,95 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
             )}
           </div>
 
-          {/* 3. Late Fee & Outstanding Balance */}
+          {/* 3. จัดการยอดลดหย่อนเงินสมทบระดมทุน (Contribution Deduction Control) */}
+          <div className="bg-emerald-50/70 p-3.5 rounded-xl border border-emerald-300 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
+                  <span>💰 3. ยอดลดหย่อนจากเงินสมทบระดมทุน (Contribution Deduction)</span>
+                </div>
+                <div className="text-[11px] text-emerald-700 mt-0.5">
+                  ยอดเงินสมทบสะสมทั้งหมดของห้องนี้:{' '}
+                  <b className="font-mono text-emerald-900 bg-emerald-100 px-1.5 py-0.5 rounded">
+                    {totalContributionAvailable.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+                  </b>
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  onClick={() => setContributionDeductedStr('0')}
+                  className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                    Number(contributionDeductedStr) === 0
+                      ? 'bg-slate-800 text-white border-slate-800'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-300'
+                  }`}
+                >
+                  ❌ ไม่ลดหย่อน (0 บ.)
+                </button>
+
+                {totalContributionAvailable > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const maxDeduct = Math.min(previewBill.common_fee, totalContributionAvailable);
+                      setContributionDeductedStr(String(maxDeduct));
+                    }}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition ${
+                      Number(contributionDeductedStr) === Math.min(previewBill.common_fee, totalContributionAvailable) && Number(contributionDeductedStr) > 0
+                        ? 'bg-emerald-700 text-white border-emerald-700'
+                        : 'bg-white hover:bg-emerald-100 text-emerald-800 border-emerald-400'
+                    }`}
+                  >
+                    ✨ ลดหย่อนเต็มค่าส่วนกลาง ({Math.min(previewBill.common_fee, totalContributionAvailable)} บ.)
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="text-slate-600 block mb-1 text-[11px] font-bold">
+                  ระบุยอดเงินที่ต้องการลดหย่อนในบิลนี้ (บาท):
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    max={Math.min(previewBill.common_fee, totalContributionAvailable)}
+                    value={contributionDeductedStr}
+                    onChange={(e) => setContributionDeductedStr(e.target.value)}
+                    className="w-full border-2 border-emerald-400 rounded-lg p-2 font-mono font-bold text-emerald-900 bg-white"
+                    placeholder="0"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400">บาท</span>
+                </div>
+                <div className="text-[10px] text-slate-500 mt-1">
+                  * ลดหย่อนได้สูงสุดไม่เกินค่าส่วนกลาง ({previewBill.common_fee} บ.) และไม่เกินยอดสะสม ({totalContributionAvailable} บ.)
+                </div>
+              </div>
+
+              <div className="bg-white p-2.5 rounded-lg border border-emerald-200 flex flex-col justify-center space-y-1">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-500">ค่าส่วนกลางสุทธิในบิล:</span>
+                  <b className="font-mono text-slate-800">
+                    {(previewBill.common_fee - previewBill.contribution_deducted).toFixed(2)} บ.
+                  </b>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-500">เงินสมทบคงเหลือหลังหักบิลนี้:</span>
+                  <b className="font-mono text-emerald-700">
+                    {Math.max(0, totalContributionAvailable - previewBill.contribution_deducted).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
+                  </b>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Late Fee & Outstanding Balance */}
           <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div>
               <div className="flex items-center justify-between mb-1">
