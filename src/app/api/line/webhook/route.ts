@@ -819,7 +819,20 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           const finalReply = renderedTexts.join('\n\n━━━━━━━━━━━━━━\n\n');
           const replyBubbles: any[] = [];
 
-          // If querying receipt, check if any room has an uploaded receipt image
+          // 1. If querying bill (mode === 'system_bill' or 'ดูบิล' / 'bill'), attach meter dial photo(s)
+          if (mode === 'system_bill' || wantsMeterPhoto || text.includes('ดูบิล') || text.toLowerCase().includes('bill')) {
+            for (const pUrl of photoUrls) {
+              if (pUrl && pUrl.startsWith('https://')) {
+                replyBubbles.push({
+                  type: 'image',
+                  originalContentUrl: pUrl,
+                  previewImageUrl: pUrl,
+                });
+              }
+            }
+          }
+
+          // 2. If querying receipt, check if any room has an uploaded receipt image
           if (mode === 'system_receipt' || text.includes('ใบเสร็จ') || text.toLowerCase().includes('receipt')) {
             for (const r of linkedRoomsList) {
               const { data: paidLog } = await supabase
@@ -839,6 +852,11 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
                 });
               }
             }
+          }
+
+          // Enforce LINE API limit of max 5 messages per replyToken (leave 1 slot for text)
+          while (replyBubbles.length > 4) {
+            replyBubbles.pop();
           }
 
           replyBubbles.push({ type: 'text', text: finalReply || 'ข้อมูลใบแจ้งหนี้ / ใบเสร็จ' });

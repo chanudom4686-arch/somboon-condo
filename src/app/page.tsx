@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 2.6 - Streamlined Resident PDPA Accounting Report (pure stats, no room grid), Suggested Late Fee & Multi-Room Owner Suite
+// Version 2.7 - Bilingual Invoices & Receipts (TH/EN), Smart Receipt Send Tracking & Filter, Batch Receipt Push & Meter Photo LINE Webhook
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -23,6 +23,7 @@ import { MeterReadingModal } from '@/components/MeterReadingModal';
 import { BillEditModal } from '@/components/BillEditModal';
 import { MonthlyReportPrintModal } from '@/components/MonthlyReportPrintModal';
 import { MultiRoomPayModal } from '@/components/MultiRoomPayModal';
+import { BatchReceiptSendModal } from '@/components/BatchReceiptSendModal';
 
 const THAI_MONTHS = [
   { num: '01', label: '01 - มกราคม' },
@@ -79,9 +80,12 @@ export default function AdminCondoApp() {
   // Shared Search Input (Room Range Buttons Removed as Requested)
   const [searchQuery, setSearchQuery] = useState('');
   const [auditFilter, setAuditFilter] = useState<'all' | 'has_photo' | 'unverified' | 'verified' | 'anomaly' | 'unread'>('all');
-  const [paymentFilter, setPaymentFilter] = useState<'all' | 'unpaid' | 'overdue' | 'paid' | 'late_paid' | 'line_notified' | 'phone_called' | 'multi_room'>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'unpaid' | 'overdue' | 'paid' | 'receipt_unsent' | 'receipt_sent' | 'late_paid' | 'line_notified' | 'phone_called' | 'multi_room'>('all');
   const [roomsViewMode, setRoomsViewMode] = useState<'individual' | 'by_owner'>('individual');
   const [showMultiRoomPayModal, setShowMultiRoomPayModal] = useState(false);
+  const [showBatchReceiptModal, setShowBatchReceiptModal] = useState(false);
+  const [batchReceiptPreselectedRoomNos, setBatchReceiptPreselectedRoomNos] = useState<string[] | undefined>(undefined);
+  const [batchReceiptFilterMode, setBatchReceiptFilterMode] = useState<'unsent' | 'all'>('unsent');
 
   // Inline Meter Editing Drafts in Audit Tab
   const [inlineEdits, setInlineEdits] = useState<Record<string, { prev: string; curr: string }>>({});
@@ -366,9 +370,13 @@ export default function AdminCondoApp() {
         else if (auditFilter === 'anomaly') matchesTabFilter = !!getRoomAnomaly(r, log);
         else if (auditFilter === 'unread') matchesTabFilter = !isRead;
       } else if (activeTab === 'payments') {
+        const isReceiptSent =
+          log?.followup_status === 'receipt_sent' || (!!log?.slip_url && log.slip_url.includes('receipt'));
         if (paymentFilter === 'unpaid') matchesTabFilter = !log?.is_paid;
         else if (paymentFilter === 'overdue') matchesTabFilter = isRoomOverdue(log);
         else if (paymentFilter === 'paid') matchesTabFilter = !!log?.is_paid;
+        else if (paymentFilter === 'receipt_unsent') matchesTabFilter = !!log?.is_paid && !isReceiptSent;
+        else if (paymentFilter === 'receipt_sent') matchesTabFilter = !!log?.is_paid && isReceiptSent;
         else if (paymentFilter === 'late_paid') matchesTabFilter = !!log?.is_paid && !!log?.is_late_payment;
         else if (paymentFilter === 'line_notified') matchesTabFilter = log?.followup_status === 'line_notified';
         else if (paymentFilter === 'phone_called') matchesTabFilter = log?.followup_status === 'phone_called';
@@ -439,6 +447,20 @@ export default function AdminCondoApp() {
   const paidRoomsCount = useMemo(
     () => rooms.filter((r) => !!logMap[r.room_no]?.is_paid).length,
     [rooms, logMap]
+  );
+  const receiptSentCount = useMemo(
+    () =>
+      rooms.filter(
+        (r) =>
+          !!logMap[r.room_no]?.is_paid &&
+          (logMap[r.room_no]?.followup_status === 'receipt_sent' ||
+            (!!logMap[r.room_no]?.slip_url && logMap[r.room_no].slip_url!.includes('receipt')))
+      ).length,
+    [rooms, logMap]
+  );
+  const receiptUnsentCount = useMemo(
+    () => Math.max(0, paidRoomsCount - receiptSentCount),
+    [paidRoomsCount, receiptSentCount]
   );
   const latePaidRoomsCount = useMemo(
     () => rooms.filter((r) => !!logMap[r.room_no]?.is_paid && !!logMap[r.room_no]?.is_late_payment).length,
@@ -988,7 +1010,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.6
+                  ระบบบริหารนิติบุคคล v2.7
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -1847,7 +1869,7 @@ export default function AdminCondoApp() {
                         </span>
                       )}
                     </div>
-                    <div className="flex gap-2 mt-2">
+                    <div className="flex flex-wrap gap-2 mt-2">
                       <button
                         type="button"
                         disabled={paidRoomsCount === 0}
@@ -1857,14 +1879,28 @@ export default function AdminCondoApp() {
                             rooms.filter((r) => !!logMap[r.room_no]?.is_paid).map((r) => r.room_no)
                           )
                         }
-                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs shadow-xs"
+                        className="flex-1 min-w-[120px] py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs shadow-xs"
                       >
-                        🧾 พิมพ์ใบเสร็จ ({paidRoomsCount} ห้อง)
+                        🧾 พิมพ์ A4 ({paidRoomsCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBatchReceiptFilterMode('unsent');
+                          setBatchReceiptPreselectedRoomNos(undefined);
+                          setShowBatchReceiptModal(true);
+                        }}
+                        disabled={paidRoomsCount === 0}
+                        className="flex-1 min-w-[150px] py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs shadow-xs flex items-center justify-center gap-1.5"
+                        title="ส่งรูปใบเสร็จเข้า LINE (เลือกระหว่างห้องที่ยังไม่ส่ง หรือทั้งหมด)"
+                      >
+                        <span>📲</span>
+                        <span>ส่งรูป LINE {receiptUnsentCount > 0 ? `(ค้าง ${receiptUnsentCount})` : '(ครบแล้ว)'}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => setShowMultiRoomPayModal(true)}
-                        className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs shadow-xs flex items-center justify-center gap-1"
+                        className="py-2 px-3 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs shadow-xs flex items-center justify-center gap-1"
                       >
                         <span>👥</span>
                         <span>รวมชำระหลายห้อง</span>
@@ -1880,6 +1916,8 @@ export default function AdminCondoApp() {
                     { id: 'unpaid', label: `⏳ ยังไม่ชำระ (${rooms.length - paidRoomsCount})` },
                     { id: 'overdue', label: `🚨 ค้างชำระ (${overdueRoomsCount})` },
                     { id: 'paid', label: `✅ ชำระแล้วทั้งหมด (${paidRoomsCount})` },
+                    { id: 'receipt_unsent', label: `⚠️ ชำระแล้ว - ยังไม่ส่งใบเสร็จ (${receiptUnsentCount})` },
+                    { id: 'receipt_sent', label: `📲 ส่งใบเสร็จแล้ว (${receiptSentCount})` },
                     { id: 'late_paid', label: `⏰ ชำระล่าช้า (${latePaidRoomsCount})` },
                     { id: 'multi_room', label: `👥 เจ้าของหลายห้อง` },
                     { id: 'line_notified', label: `💬 ทวงในแชต LINE แล้ว` },
@@ -1908,6 +1946,8 @@ export default function AdminCondoApp() {
                     const isPaid = !!log?.is_paid;
                     const isLate = !!log?.is_late_payment;
                     const overdue = isRoomOverdue(log);
+                    const hasReceiptSent =
+                      log?.followup_status === 'receipt_sent' || (!!log?.slip_url && log.slip_url.includes('receipt'));
                     const dueAmt = bill ? bill.total_amount : Number(room.outstanding_balance) || 0;
                     const fStatus = log?.followup_status || 'none';
 
@@ -2048,18 +2088,49 @@ export default function AdminCondoApp() {
                             </>
                           ) : (
                             <div className="w-full space-y-1.5">
-                              <div className="text-[11px] text-emerald-800 font-bold text-center bg-emerald-50 py-1 rounded-lg border border-emerald-200">
-                                รับชำระโดย: {log?.paid_type === 'cash' || log?.paid_type === 'เงินสด' ? '💵 เงินสด' : '🏦 โอนเงิน'}{' '}
-                                {log?.paid_timestamp &&
-                                  `(${new Date(log.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })})`}
+                              <div className="flex items-center justify-between text-[11px] bg-slate-50 p-1.5 rounded-lg border border-slate-200">
+                                <span className="text-slate-600 font-medium">
+                                  {log?.paid_type === 'cash' || log?.paid_type === 'เงินสด' ? '💵 เงินสด' : '🏦 โอนเงิน'}{' '}
+                                  {log?.paid_timestamp &&
+                                    `(${new Date(log.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })})`}
+                                </span>
+                                {hasReceiptSent ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
+                                    <span>🟢</span>
+                                    <span>ส่งรูป LINE แล้ว</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold flex items-center gap-1">
+                                    <span>🟡</span>
+                                    <span>ยังไม่ส่งรูป</span>
+                                  </span>
+                                )}
                               </div>
                               <div className="flex gap-1 text-[11px]">
                                 <button
                                   type="button"
                                   onClick={() => handleOpenPrint('receipt', [room.room_no])}
-                                  className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-xs"
+                                  className="flex-1 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg shadow-xs"
+                                  title="พิมพ์ใบเสร็จรับเงิน A4 (RECEIPT)"
                                 >
-                                  🧾 พิมพ์ใบเสร็จรับเงิน
+                                  🧾 พิมพ์ A4
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setBatchReceiptFilterMode('all');
+                                    setBatchReceiptPreselectedRoomNos([room.room_no]);
+                                    setShowBatchReceiptModal(true);
+                                  }}
+                                  className={`px-2.5 py-1.5 font-bold rounded-lg border shadow-xs flex items-center gap-1 transition ${
+                                    hasReceiptSent
+                                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                      : 'bg-emerald-600 text-white hover:bg-emerald-700 border-emerald-700'
+                                  }`}
+                                  title={hasReceiptSent ? 'ส่งรูปใบเสร็จซ้ำเข้า LINE ลูกบ้าน' : 'ส่งรูปใบเสร็จเข้า LINE ลูกบ้าน'}
+                                >
+                                  <span>📲</span>
+                                  <span>{hasReceiptSent ? 'ส่งซ้ำ' : 'ส่งรูป'}</span>
                                 </button>
                                 <button
                                   type="button"
@@ -2071,7 +2142,7 @@ export default function AdminCondoApp() {
                                   }`}
                                   title="สลับสถานะ ชำระตามกำหนด / ชำระล่าช้า"
                                 >
-                                  ⏰ ล่าช้า
+                                  ⏰
                                 </button>
                                 <button
                                   type="button"
@@ -2919,7 +2990,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.6)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.7)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
@@ -3485,7 +3556,7 @@ export default function AdminCondoApp() {
         />
       )}
 
-      {/* MODAL: PAYMENT RECORD (Auto-opens Receipt Print Preview upon saving!) */}
+      {/* MODAL: PAYMENT RECORD */}
       {paymentRoom && (
         <PaymentModal
           room={paymentRoom}
@@ -3493,8 +3564,11 @@ export default function AdminCondoApp() {
           period={period}
           config={config}
           onClose={() => setPaymentRoom(null)}
-          onPaymentSuccess={async (paidRoomNo) => {
+          onPaymentSuccess={async () => {
             await fetchData(period);
+          }}
+          onOpenPrintReceipt={(paidRoomNo) => {
+            setPaymentRoom(null);
             handleOpenPrint('receipt', [paidRoomNo]);
           }}
         />
@@ -3546,6 +3620,25 @@ export default function AdminCondoApp() {
           period={period}
           config={config}
           onClose={() => setShowMultiRoomPayModal(false)}
+          onSuccess={() => {
+            fetchData(period);
+          }}
+        />
+      )}
+
+      {/* MODAL: BATCH RECEIPT LINE PUSH */}
+      {showBatchReceiptModal && (
+        <BatchReceiptSendModal
+          rooms={rooms}
+          logMap={logMap}
+          config={config}
+          period={period}
+          initialFilterMode={batchReceiptFilterMode}
+          preselectedRoomNos={batchReceiptPreselectedRoomNos}
+          onClose={() => {
+            setShowBatchReceiptModal(false);
+            setBatchReceiptPreselectedRoomNos(undefined);
+          }}
           onSuccess={() => {
             fetchData(period);
           }}

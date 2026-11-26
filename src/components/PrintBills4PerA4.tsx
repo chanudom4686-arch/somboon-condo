@@ -275,22 +275,22 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                         </div>
                         <div className="text-right">
                           <div className="font-extrabold text-black text-sm border border-black px-2 py-0.5 rounded bg-neutral-100 inline-block">
-                            ห้อง {bill.formatted_room}
+                            ห้อง / Room {bill.formatted_room}
                           </div>
-                          <div className="text-[10px] text-neutral-800 mt-0.5 font-mono">เลขที่: {docNo}</div>
+                          <div className="text-[10px] text-neutral-800 mt-0.5 font-mono">เลขที่ / No: {docNo}</div>
                         </div>
                       </div>
 
                       {/* Period & Due Date */}
                       <div className="flex justify-between border border-black bg-neutral-100 px-2 py-1 rounded mb-1.5 text-[11px] text-black">
                         <div>
-                          <span>รอบบิล/Period: </span>
+                          <span>รอบบิล / Period: </span>
                           <span className="font-bold">{bill.period}</span>
                         </div>
                         <div>
                           {isReceipt ? (
                             <>
-                              <span>วันที่รับชำระ: </span>
+                              <span>วันที่ชำระ / Paid Date: </span>
                               <span className="font-bold underline">
                                 {log?.paid_timestamp
                                   ? new Date(log.paid_timestamp).toLocaleDateString('th-TH', {
@@ -301,7 +301,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                             </>
                           ) : (
                             <>
-                              <span>ครบกำหนด/Due: </span>
+                              <span>ครบกำหนด / Due Date: </span>
                               <span className="font-bold underline">{bill.due_date}</span>
                             </>
                           )}
@@ -312,10 +312,10 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       <div className="border border-black rounded p-1.5 mb-1.5 bg-white text-[11px] text-black">
                         <div className="flex justify-between">
                           <span>
-                            เลขมิเตอร์น้ำ/Meter: <b>{bill.curr_meter}</b>
+                            เลขมิเตอร์ / Meter: <b>{bill.curr_meter}</b>
                           </span>
-                          <span>(ครั้งก่อน: {bill.prev_meter})</span>
-                          <span className="font-bold">ใช้น้ำ: {bill.units_used} หน่วย</span>
+                          <span>(ก่อนหน้า / Prev: {bill.prev_meter})</span>
+                          <span className="font-bold">ใช้น้ำ / Used: {bill.units_used} หน่วย (Units)</span>
                         </div>
                       </div>
 
@@ -324,20 +324,20 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                         <tbody>
                           <tr className="border-b border-neutral-300">
                             <td className="py-0.5">
-                              1. ค่าน้ำประปา / Water ({bill.units_used} หน่วย × {bill.water_rate} บ.)
+                              1. ค่าน้ำประปา / Water Supply ({bill.units_used} Units × {bill.water_rate} ฿)
                             </td>
                             <td className="text-right font-mono font-medium">{bill.water_amount.toFixed(2)}</td>
                           </tr>
                           <tr className="border-b border-neutral-300">
                             <td className="py-0.5">
-                              2. ค่าบำบัดน้ำเสีย / Wastewater ({bill.units_used} หน่วย × {bill.wastewater_rate} บ.)
+                              2. ค่าบำบัดน้ำเสีย / Wastewater ({bill.units_used} Units × {bill.wastewater_rate} ฿)
                             </td>
                             <td className="text-right font-mono font-medium">
                               {bill.wastewater_amount.toFixed(2)}
                             </td>
                           </tr>
                           <tr className="border-b border-neutral-300">
-                            <td className="py-0.5">3. ค่าส่วนกลาง / Common Fee</td>
+                            <td className="py-0.5">3. ค่าส่วนกลาง / Common Area Fee</td>
                             <td className="text-right font-mono font-medium">{bill.common_fee.toFixed(2)}</td>
                           </tr>
                           {customLineItems.map((cItem, cIdx) => (
@@ -352,13 +352,13 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                           ))}
                           {(bill.late_fee || 0) > 0 && (
                             <tr className="border-b border-neutral-300 font-semibold">
-                              <td className="py-0.5">เบี้ยปรับชำระล่าช้า / Late Fee</td>
+                              <td className="py-0.5">เบี้ยปรับชำระล่าช้า / Late Payment Fee</td>
                               <td className="text-right font-mono">+{bill.late_fee.toFixed(2)}</td>
                             </tr>
                           )}
                           {bill.contribution_deducted > 0 && (
                             <tr className="border-b border-neutral-300 font-semibold">
-                              <td className="py-0.5">★ หักเครดิตสมทบทุนซ่อมตึก / Fund Credit</td>
+                              <td className="py-0.5">★ หักเครดิตสมทบทุน / Fund Credit</td>
                               <td className="text-right font-mono">-{bill.contribution_deducted.toFixed(2)}</td>
                             </tr>
                           )}
@@ -401,14 +401,15 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                         <div className="bg-white border border-black p-2 rounded text-[10px] text-black flex justify-between items-center">
                           <div className="space-y-0.5">
                             <div className="font-bold text-black">
-                              ✓ ได้รับชำระเงินเรียบร้อยแล้ว {log?.is_late_payment ? '(ชำระล่าช้า)' : '(ตามกำหนด)'}
+                              ✓ ได้รับชำระเงินเรียบร้อยแล้ว / Paid Successfully{' '}
+                              {log?.is_late_payment ? '(ชำระล่าช้า / Late)' : '(ตรงตามกำหนด / On Time)'}
                             </div>
                             <div className="text-black">
-                              รับชำระโดย: <b className="underline">{paidMethodLabel}</b>
+                              รับชำระโดย / Paid by: <b className="underline">{paidMethodLabel}</b>
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="text-neutral-700">ผู้รับเงิน / นิติบุคคล</div>
+                            <div className="text-neutral-700">ผู้รับเงิน / Authorized Signature</div>
                             <div className="font-bold text-black mt-1">________________</div>
                           </div>
                         </div>
@@ -426,13 +427,13 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                             </div>
                           )}
                           <div className="text-[10px] leading-tight flex-1 text-black">
-                            <div className="font-bold">สแกนจ่ายผ่านพร้อมเพย์</div>
-                            <div>หรือโอน: {bankName}</div>
+                            <div className="font-bold">สแกนจ่ายพร้อมเพย์ / PromptPay QR</div>
+                            <div>หรือโอน / Transfer: {bankName}</div>
                             <div className="font-mono font-bold">{bankAccNo}</div>
                             <div className="truncate">{bankAccName}</div>
                             {bill.contribution_after > 0 && (
                               <div className="font-semibold mt-0.5">
-                                เครดิตสมทบคงเหลือ: {bill.contribution_after.toLocaleString()} บ.
+                                เครดิตคงเหลือ / Credit: {bill.contribution_after.toLocaleString()} ฿
                               </div>
                             )}
                           </div>
@@ -441,7 +442,11 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
 
                       {/* Notes / Footer */}
                       <div className="mt-1 text-[9px] text-black text-center border-t border-neutral-400 pt-0.5">
-                        <div>โปรดชำระเงินภายในวันที่ {bill.due_date} หากชำระแล้วแจ้งสลิปทาง LINE OA</div>
+                        <div>
+                          {isReceipt
+                            ? 'เอกสารนี้ออกโดยระบบบริหารจัดการอาคารชุด สมบูรณ์คอนโดทาวน์ (645) / Somboon Condo Town (645)'
+                            : `โปรดชำระภายในวันที่ ${bill.due_date} หากโอนแล้วแจ้งสลิปทาง LINE OA / Please pay by due date & notify via LINE OA`}
+                        </div>
                       </div>
                     </div>
                   </div>

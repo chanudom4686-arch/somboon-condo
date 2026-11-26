@@ -16,6 +16,7 @@ interface PaymentModalProps {
   config: Partial<CondoConfig>;
   onClose: () => void;
   onPaymentSuccess: (paidRoomNo: string) => void;
+  onOpenPrintReceipt?: (paidRoomNo: string) => void;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
@@ -25,6 +26,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   config,
   onClose,
   onPaymentSuccess,
+  onOpenPrintReceipt,
 }) => {
   const supabase = createClient();
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -236,10 +238,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       const { data: urlData } = supabase.storage.from('slips').getPublicUrl(uploadData.path);
       const publicReceiptUrl = urlData.publicUrl;
 
-      // 4. Update meter_logs.slip_url so resident can query it anytime in LINE webhook
+      // 4. Update meter_logs.slip_url and mark followup_status as receipt_sent
       await supabase
         .from('meter_logs')
-        .update({ slip_url: publicReceiptUrl })
+        .update({
+          slip_url: publicReceiptUrl,
+          followup_status: 'receipt_sent',
+          followup_note: new Date().toISOString(),
+        })
         .eq('period', period)
         .eq('room_no', room.room_no);
 
@@ -342,62 +348,62 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               {/* Items Table */}
               <div className="space-y-1 py-1 text-[10.5px]">
                 <div className="flex justify-between py-0.5">
-                  <span>1. ค่าน้ำประปา ({billCalc.units_used} หน่วย @ 35 บ.)</span>
-                  <span className="font-mono font-semibold">{billCalc.water_amount.toLocaleString()} บ.</span>
+                  <span>1. ค่าน้ำประปา / Water Supply ({billCalc.units_used} units @ 35 ฿)</span>
+                  <span className="font-mono font-semibold">{billCalc.water_amount.toLocaleString()} ฿</span>
                 </div>
                 <div className="flex justify-between py-0.5">
-                  <span>2. ค่าบำบัดน้ำเสีย ({billCalc.units_used} หน่วย @ 5 บ.)</span>
-                  <span className="font-mono font-semibold">{billCalc.wastewater_amount.toLocaleString()} บ.</span>
+                  <span>2. ค่าบำบัดน้ำเสีย / Wastewater ({billCalc.units_used} units @ 5 ฿)</span>
+                  <span className="font-mono font-semibold">{billCalc.wastewater_amount.toLocaleString()} ฿</span>
                 </div>
                 <div className="flex justify-between py-0.5">
-                  <span>3. ค่าส่วนกลาง</span>
-                  <span className="font-mono font-semibold">{billCalc.common_fee.toLocaleString()} บ.</span>
+                  <span>3. ค่าส่วนกลาง / Common Area Fee</span>
+                  <span className="font-mono font-semibold">{billCalc.common_fee.toLocaleString()} ฿</span>
                 </div>
                 {billCalc.late_fee > 0 && (
                   <div className="flex justify-between py-0.5 text-rose-700 font-semibold">
-                    <span>4. เบี้ยปรับชำระล่าช้า</span>
-                    <span className="font-mono">+{billCalc.late_fee.toLocaleString()} บ.</span>
+                    <span>4. เบี้ยปรับชำระล่าช้า / Late Fee</span>
+                    <span className="font-mono">+{billCalc.late_fee.toLocaleString()} ฿</span>
                   </div>
                 )}
                 {billCalc.special_items !== 0 && (
                   <div className="flex justify-between py-0.5">
-                    <span>5. รายการพิเศษ ({billCalc.special_items_note || '-'})</span>
+                    <span>5. รายการพิเศษ / Extra Items ({billCalc.special_items_note || '-'})</span>
                     <span className="font-mono font-semibold">
-                      {billCalc.special_items > 0 ? '+' : ''}{billCalc.special_items.toLocaleString()} บ.
+                      {billCalc.special_items > 0 ? '+' : ''}{billCalc.special_items.toLocaleString()} ฿
                     </span>
                   </div>
                 )}
                 {billCalc.contribution_deducted > 0 && (
                   <div className="flex justify-between py-0.5 text-blue-700">
-                    <span>• หักเครดิตสมทบทุนซ่อมตึก</span>
-                    <span className="font-mono">-{billCalc.contribution_deducted.toLocaleString()} บ.</span>
+                    <span>• หักเครดิตสมทบทุน / Fund Credit</span>
+                    <span className="font-mono">-{billCalc.contribution_deducted.toLocaleString()} ฿</span>
                   </div>
                 )}
                 {billCalc.prepaid_deducted > 0 && (
                   <div className="flex justify-between py-0.5 text-emerald-700">
-                    <span>• หักเงินฝากล่วงหน้า</span>
-                    <span className="font-mono">-{billCalc.prepaid_deducted.toLocaleString()} บ.</span>
+                    <span>• หักเงินฝากล่วงหน้า / Prepaid Deposit</span>
+                    <span className="font-mono">-{billCalc.prepaid_deducted.toLocaleString()} ฿</span>
                   </div>
                 )}
                 {billCalc.outstanding_balance > 0 && (
                   <div className="flex justify-between py-0.5 text-amber-800">
-                    <span>• ยอดค้างชำระยกมา</span>
-                    <span className="font-mono">+{billCalc.outstanding_balance.toLocaleString()} บ.</span>
+                    <span>• ยอดค้างชำระยกมา / Outstanding Balance</span>
+                    <span className="font-mono">+{billCalc.outstanding_balance.toLocaleString()} ฿</span>
                   </div>
                 )}
               </div>
 
               {/* Total Row */}
               <div className="border-t-2 border-black pt-1.5 flex justify-between items-center text-sm font-extrabold">
-                <span>ยอดเงินที่รับชำระทั้งสิ้น</span>
+                <span>ยอดเงินที่รับชำระทั้งสิ้น / TOTAL RECEIVED</span>
                 <span className="font-mono text-emerald-800">
-                  {successReceipt.paidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+                  {successReceipt.paidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท (THB)
                 </span>
               </div>
 
               {/* Receipt Footer */}
               <div className="text-[9.5px] text-center text-neutral-500 pt-1 border-t border-neutral-300">
-                ออกโดย: ระบบบริหารจัดการคอนโดมิเนียม • สมบูรณ์คอนโดทาวน์ (645)
+                ออกโดย: ระบบบริหารจัดการคอนโดมิเนียม • สมบูรณ์คอนโดทาวน์ (645) / Somboon Condo Town
               </div>
             </div>
 
@@ -424,6 +430,17 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <span>📲</span>
                 <span>{isSendingLine ? 'กำลังสร้างรูปและส่ง LINE...' : 'ส่งรูปใบเสร็จไปที่ LINE ลูกบ้าน'}</span>
               </button>
+
+              {onOpenPrintReceipt && (
+                <button
+                  type="button"
+                  onClick={() => onOpenPrintReceipt(room.room_no)}
+                  className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs shadow-xs flex items-center justify-center gap-2 transition"
+                >
+                  <span>🖨️</span>
+                  <span>พิมพ์ใบเสร็จ A4 (RECEIPT)</span>
+                </button>
+              )}
 
               <button
                 type="button"
