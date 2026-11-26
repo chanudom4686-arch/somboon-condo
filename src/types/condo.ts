@@ -142,6 +142,7 @@ export interface BillCalculationResult {
 export interface Transaction {
   id: string;
   tx_date: string;
+  billing_period?: string;
   category: string;
   type: 'income' | 'expense' | 'รายรับ' | 'รายจ่าย' | string;
   amount: number;

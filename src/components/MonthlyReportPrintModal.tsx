@@ -30,11 +30,41 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
   allYearLogs = [],
   onClose,
 }) => {
+  const [selectedPeriod, setSelectedPeriod] = useState<string>(period);
   const [audience, setAudience] = useState<'juristic' | 'resident'>('juristic');
   const [reportType, setReportType] = useState<'monthly' | 'annual'>('monthly');
 
   const condoName = config.CONDO_NAME || 'นิติบุคคลอาคารชุดสมบูรณ์คอนโดทาวน์ (645)';
-  const periodTx = transactions.filter((tx) => (tx.tx_date || '').startsWith(period));
+
+  // Build list of distinct periods available from transactions, allYearLogs, and current period
+  const availablePeriods = React.useMemo(() => {
+    const set = new Set<string>();
+    if (period) set.add(period);
+    transactions.forEach((tx) => {
+      if (tx.billing_period) set.add(tx.billing_period);
+      else if (tx.tx_date) set.add(tx.tx_date.slice(0, 7));
+    });
+    allYearLogs.forEach((l) => {
+      if (l.period) set.add(l.period);
+    });
+    return Array.from(set).sort().reverse();
+  }, [period, transactions, allYearLogs]);
+
+  // Log map matching selected period
+  const effectiveLogMap = React.useMemo(() => {
+    if (selectedPeriod === period) return logMap;
+    const map: Record<string, MeterLog> = {};
+    allYearLogs.filter((l) => l.period === selectedPeriod).forEach((l) => {
+      map[l.room_no] = l;
+    });
+    return Object.keys(map).length > 0 ? map : logMap;
+  }, [selectedPeriod, period, logMap, allYearLogs]);
+
+  // Filter transactions for selected monthly period (matching billing_period or tx_date)
+  const periodTx = transactions.filter((tx) => {
+    if (tx.billing_period) return tx.billing_period === selectedPeriod;
+    return (tx.tx_date || '').startsWith(selectedPeriod);
+  });
   const incomeTx = periodTx.filter((tx) => tx.type === 'รายรับ' || tx.type === 'income');
   const expenseTx = periodTx.filter((tx) => tx.type === 'รายจ่าย' || tx.type === 'expense');
 
@@ -49,8 +79,8 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
     expenseByCategory[cat] = (expenseByCategory[cat] || 0) + (Number(tx.amount) || 0);
   });
 
-  const paidRooms = rooms.filter((r) => logMap[r.room_no]?.is_paid);
-  const unpaidRooms = rooms.filter((r) => !logMap[r.room_no]?.is_paid);
+  const paidRooms = rooms.filter((r) => effectiveLogMap[r.room_no]?.is_paid);
+  const unpaidRooms = rooms.filter((r) => !effectiveLogMap[r.room_no]?.is_paid);
   const collectionPct = rooms.length > 0 ? ((paidRooms.length / rooms.length) * 100).toFixed(1) : '0.0';
 
   const billMap: Record<string, BillCalculationResult> = {};
@@ -66,8 +96,11 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
   });
 
   // Calculate annual transaction sums
-  const currentYear = period.split('-')[0] || '2026';
-  const yearTx = transactions.filter((tx) => (tx.tx_date || '').startsWith(currentYear));
+  const currentYear = selectedPeriod.split('-')[0] || '2026';
+  const yearTx = transactions.filter((tx) => {
+    const pYear = tx.billing_period ? tx.billing_period.split('-')[0] : (tx.tx_date || '').split('-')[0];
+    return pYear === currentYear;
+  });
   const yearIncomeTx = yearTx.filter((tx) => tx.type === 'รายรับ' || tx.type === 'income');
   const yearExpenseTx = yearTx.filter((tx) => tx.type === 'รายจ่าย' || tx.type === 'expense');
   const totalYearIncome = yearIncomeTx.reduce((s, t) => s + (Number(t.amount) || 0), 0);
@@ -134,28 +167,42 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
           </div>
 
           {/* Period Switcher */}
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
             <button
               type="button"
               onClick={() => setReportType('monthly')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
                 reportType === 'monthly'
                   ? 'bg-slate-900 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              📄 รายเดือน ({period})
+              <span>📄 รายเดือน</span>
             </button>
+            {reportType === 'monthly' && (
+              <select
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className="bg-white text-slate-800 font-mono font-bold text-xs px-2.5 py-1 rounded-lg border border-slate-300 outline-none cursor-pointer hover:border-slate-400"
+                title="เลือกรอบเดือนที่ต้องการพิมพ์รายงาน"
+              >
+                {availablePeriods.map((p) => (
+                  <option key={p} value={p}>
+                    งวด {p}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               type="button"
               onClick={() => setReportType('annual')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
                 reportType === 'annual'
                   ? 'bg-slate-900 text-white shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              📅 รายปี ({currentYear})
+              <span>📅 รายปี ({currentYear})</span>
             </button>
           </div>
 
@@ -251,10 +298,10 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
           <h2 className="text-sm font-bold text-black mt-0.5">
             {audience === 'resident'
               ? reportType === 'monthly'
-                ? `รายงานสรุปภาพรวมรายรับ–รายจ่าย ประจำเดือน ${period}`
+                ? `รายงานสรุปภาพรวมรายรับ–รายจ่าย ประจำเดือน ${selectedPeriod}`
                 : `รายงานสรุปภาพรวมการเงินและรายรับ-รายจ่าย ประจำปี ${currentYear}`
               : reportType === 'monthly'
-              ? `ประกาศสรุปบัญชีรายรับ–รายจ่าย และสถานะการชำระค่าส่วนกลาง/ค่าน้ำ ประจำเดือน ${period}`
+              ? `ประกาศสรุปบัญชีรายรับ–รายจ่าย และสถานะการชำระค่าส่วนกลาง/ค่าน้ำ ประจำเดือน ${selectedPeriod}`
               : `รายงานสรุปภาพรวมรายปี และประวัติการชำระเงินของห้องชุดทั้งหมด (${rooms.length} มิเตอร์ / 195 ห้องชุด)`}
           </h2>
           {audience === 'resident' && (
@@ -310,7 +357,7 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
               {/* 2. Breakdown of Monthly Operating Expenses (หมวดหมู่รายจ่ายที่เจ้าของร่วมต้องการทราบ) */}
               <div className="space-y-1.5 print-avoid-break">
                 <h3 className="font-bold text-black text-xs flex items-center justify-between border-b border-black pb-1">
-                  <span>1. รายละเอียดค่าใช้จ่ายในการบริหารอาคารประจำเดือน {period}</span>
+                  <span>1. รายละเอียดค่าใช้จ่ายในการบริหารอาคารประจำเดือน {selectedPeriod}</span>
                   <span className="font-mono text-neutral-600">รวม {expenseTx.length} รายการ</span>
                 </h3>
                 {Object.keys(expenseByCategory).length === 0 ? (
@@ -353,7 +400,7 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
               <div className="p-3.5 bg-neutral-50 border border-neutral-300 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs print-avoid-break">
                 <div>
                   <span className="font-bold text-neutral-800 text-xs block">
-                    📊 สรุปสถานะการชำระเงินของอาคาร (รอบบิล {period} • ทั้งหมด {rooms.length} ห้องชุด)
+                    📊 สรุปสถานะการชำระเงินของอาคาร (รอบบิล {selectedPeriod} • ทั้งหมด {rooms.length} ห้องชุด)
                   </span>
                   <span className="text-[10px] text-neutral-500">
                     * ไม่ระบุเลขห้องหรือข้อมูลส่วนบุคคลตาม พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล (PDPA)
@@ -479,7 +526,7 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
               {/* 2. Monthly Expense Itemization */}
               <div className="space-y-1.5">
                 <h3 className="font-bold text-black text-xs">
-                  1. รายละเอียดรายจ่ายประจำเดือน {period} ({expenseTx.length} รายการ)
+                  1. รายละเอียดรายจ่ายประจำเดือน {selectedPeriod} ({expenseTx.length} รายการ)
                 </h3>
                 {expenseTx.length === 0 ? (
                   <div className="p-2.5 border border-black rounded-lg text-neutral-700 text-center text-[11px]">
@@ -500,7 +547,14 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
                     <tbody>
                       {expenseTx.map((tx) => (
                         <tr key={tx.id}>
-                          <td className="border border-black py-1 px-2 font-mono">{tx.tx_date}</td>
+                          <td className="border border-black py-1 px-2 font-mono">
+                            <div>{tx.tx_date}</div>
+                            {tx.billing_period && (
+                              <div className="text-[9.5px] text-neutral-600 font-sans">
+                                (งวด {tx.billing_period})
+                              </div>
+                            )}
+                          </td>
                           <td className="border border-black py-1 px-2">
                             {tx.fund_type === 'maintenance_fund' ? 'กองทุนซ่อมบำรุง' : 'กองทุนดำเนินงาน'}
                           </td>
@@ -523,7 +577,7 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black pb-1">
                   <h3 className="font-bold text-black text-xs">
-                    2. สรุปสถานะการชำระเงินรายห้อง ครบทุกห้องชุด (รอบบิล {period})
+                    2. สรุปสถานะการชำระเงินรายห้อง ครบทุกห้องชุด (รอบบิล {selectedPeriod})
                   </h3>
                   <div className="flex items-center gap-3 text-[10px] font-bold">
                     <span className="inline-flex items-center gap-1">
@@ -574,22 +628,136 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
             </>
           ) : (
             /* Annual Juristic View */
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-bold text-black text-xs">
-                  สรุปประวัติการชำระเงินรายปี และยอดค้างชำระสะสมของทุกห้องชุด
-                </h3>
-                <div className="flex items-center gap-3 text-[10px] font-bold">
-                  <span className="inline-flex items-center gap-1">
-                    <span className="inline-block w-3 h-3 border border-black bg-white" />
-                    แถวสีขาว = ชำระปกติ ไม่มียอดค้าง
+            <div className="space-y-4">
+              {/* 1. Annual Financial Overview Cards (High Contrast B&W) */}
+              <div className="grid grid-cols-4 gap-2.5 print-avoid-break">
+                <div className="border border-black rounded-lg p-2.5 bg-white">
+                  <span className="text-neutral-700 block text-[10px] font-semibold">💰 รายรับรวมทั้งปี ({currentYear})</span>
+                  <span className="text-sm font-extrabold text-black font-mono block mt-0.5">
+                    +{totalYearIncome.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
                   </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className="inline-block w-3 h-3 border border-black bg-neutral-900" />
-                    แถบสีดำ / พื้นเทา = ห้องค้างชำระ หรือห้องมีปัญหา
+                  <span className="text-[9.5px] text-neutral-600">รวมรายรับทุกรายการ</span>
+                </div>
+                <div className="border border-black rounded-lg p-2.5 bg-neutral-100">
+                  <span className="text-neutral-700 block text-[10px] font-semibold">💸 รายจ่ายรวมทั้งปี ({currentYear})</span>
+                  <span className="text-sm font-extrabold text-black font-mono block mt-0.5">
+                    -{totalYearExpense.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
+                  </span>
+                  <span className="text-[9.5px] text-neutral-600">รวม {yearExpenseTx.length} รายการ</span>
+                </div>
+                <div className="border-2 border-black rounded-lg p-2.5 bg-neutral-900 text-white">
+                  <span className="text-neutral-200 block text-[10px] font-semibold">⚖️ ยอดคงเหลือสุทธิประจำปี</span>
+                  <span className="text-sm font-extrabold text-white font-mono block mt-0.5">
+                    {(totalYearIncome - totalYearExpense).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
+                  </span>
+                  <span className="text-[9.5px] text-neutral-300">
+                    {totalYearIncome - totalYearExpense >= 0 ? 'ดุลการเงินเป็นบวก' : 'รายจ่ายเกินรายรับ'}
                   </span>
                 </div>
+                <div className="border border-black rounded-lg p-2.5 bg-white">
+                  <span className="text-neutral-700 block text-[10px] font-semibold">🔨 กองทุนสมทบคงเหลือ</span>
+                  <span className="text-sm font-extrabold text-black font-mono block mt-0.5">
+                    {totalFundCredit.toLocaleString()} บ.
+                  </span>
+                  <span className="text-[9.5px] text-neutral-600">เครดิตสมทบ 195 ห้อง</span>
+                </div>
               </div>
+
+              {/* 2. Annual Expense Categories Breakdown */}
+              <div className="space-y-1.5 print-avoid-break">
+                <h3 className="font-bold text-black text-xs border-b border-black pb-1">
+                  1. สรุปหมวดหมู่รายจ่ายตลอดปี {currentYear} ({Object.keys(yearExpenseByCategory).length} หมวดหมู่)
+                </h3>
+                {Object.keys(yearExpenseByCategory).length === 0 ? (
+                  <div className="p-2 border border-black rounded text-center text-neutral-600 text-[11px]">
+                    ไม่มีบันทึกรายการรายจ่ายในปีนี้
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 text-[10.5px]">
+                    {Object.entries(yearExpenseByCategory).map(([cat, amt]) => {
+                      const pct = totalYearExpense > 0 ? ((amt / totalYearExpense) * 100).toFixed(1) : '0';
+                      return (
+                        <div key={cat} className="flex items-center justify-between p-1.5 border border-black rounded bg-neutral-50">
+                          <span className="font-semibold text-black">• {cat}</span>
+                          <span className="font-mono font-bold text-black">
+                            {amt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ. <span className="text-[9px] text-neutral-600 font-normal">({pct}%)</span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Itemized Annual Expenses Table */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between border-b border-black pb-1">
+                  <h3 className="font-bold text-black text-xs">
+                    2. รายละเอียดรายการรายจ่ายสะสมตลอดปี {currentYear} ({yearExpenseTx.length} รายการ)
+                  </h3>
+                  <span className="text-[10.5px] font-mono font-bold text-black">
+                    รวมทั้งสิ้น {totalYearExpense.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท
+                  </span>
+                </div>
+                {yearExpenseTx.length === 0 ? (
+                  <div className="p-2.5 border border-black rounded-lg text-neutral-700 text-center text-[11px]">
+                    ไม่มีรายการรายจ่ายที่บันทึกในปีนี้
+                  </div>
+                ) : (
+                  <table className="a4-report-table w-full border-collapse border border-black text-[10.5px] text-black">
+                    <thead>
+                      <tr className="bg-neutral-200 text-black">
+                        <th className="border border-black py-1 px-1.5 text-left">วันที่จ่าย</th>
+                        <th className="border border-black py-1 px-1.5 text-center">ประจำรอบบิล</th>
+                        <th className="border border-black py-1 px-1.5 text-left">กองทุน</th>
+                        <th className="border border-black py-1 px-1.5 text-left">หมวดหมู่</th>
+                        <th className="border border-black py-1 px-1.5 text-left">รายละเอียด / หมายเหตุ</th>
+                        <th className="border border-black py-1 px-1.5 text-right">จำนวนเงิน (บาท)</th>
+                        <th className="border border-black py-1 px-1.5 text-center">สถานะ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {yearExpenseTx.map((tx) => (
+                        <tr key={tx.id}>
+                          <td className="border border-black py-1 px-1.5 font-mono">{tx.tx_date}</td>
+                          <td className="border border-black py-1 px-1.5 text-center font-mono font-bold">
+                            {tx.billing_period || tx.tx_date.slice(0, 7)}
+                          </td>
+                          <td className="border border-black py-1 px-1.5">
+                            {tx.fund_type === 'maintenance_fund' ? 'กองทุนซ่อมบำรุง' : 'กองทุนดำเนินงาน'}
+                          </td>
+                          <td className="border border-black py-1 px-1.5 font-semibold">{tx.category}</td>
+                          <td className="border border-black py-1 px-1.5">{tx.note || '-'}</td>
+                          <td className="border border-black py-1 px-1.5 text-right font-mono font-bold">
+                            {Number(tx.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="border border-black py-1 px-1.5 text-center font-bold">
+                            {tx.is_paid !== false ? 'ชำระแล้ว' : '⏳ ยังไม่ชำระ'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* 4. All 195 Rooms Payment & Arrears Status */}
+              <div className="space-y-2 pt-2 border-t border-black">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-bold text-black text-xs">
+                    3. สรุปประวัติการชำระเงินรายปี และยอดค้างชำระสะสมของทุกห้องชุด (195 ห้องชุด)
+                  </h3>
+                  <div className="flex items-center gap-3 text-[10px] font-bold">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="inline-block w-3 h-3 border border-black bg-white" />
+                      แถวสีขาว = ชำระปกติ ไม่มียอดค้าง
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="inline-block w-3 h-3 border border-black bg-neutral-900" />
+                      แถบสีดำ / พื้นเทา = ห้องค้างชำระ หรือห้องมีปัญหา
+                    </span>
+                  </div>
+                </div>
 
               <table className="a4-report-table w-full border-collapse border border-black text-[10.5px] text-black">
                 <thead>
@@ -640,9 +808,11 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
                         <td className="border border-black py-1 px-2 text-center font-mono">
                           {paidCount} งวด
                         </td>
-                        <td className="border border-black py-1 px-2 text-center font-mono ${
-                          unpaidCount > 0 ? 'font-extrabold underline' : ''
-                        }">
+                        <td
+                          className={`border border-black py-1 px-2 text-center font-mono ${
+                            unpaidCount > 0 ? 'font-extrabold underline' : ''
+                          }`}
+                        >
                           {unpaidCount > 0 ? `ค้าง ${unpaidCount} งวด` : '0 งวด'}
                         </td>
                         <td className="border border-black py-1 px-2 text-right font-mono">
@@ -663,8 +833,9 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
                 </tbody>
               </table>
             </div>
-          )
-        )}
+          </div>
+        )
+      )}
 
         {/* Signature Footer for Noticeboard */}
         <div className="print-avoid-break pt-6 grid grid-cols-2 gap-8 text-center text-xs text-black border-t border-neutral-300 mt-4">

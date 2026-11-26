@@ -2578,7 +2578,14 @@ export default function AdminCondoApp() {
                           })
                           .map((tx) => (
                             <tr key={tx.id} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 text-slate-500">{tx.tx_date}</td>
+                              <td className="py-2 px-3 text-slate-500">
+                                <div>{tx.tx_date}</div>
+                                {tx.billing_period && (
+                                  <div className="text-[10px] text-sky-600 font-mono font-bold">
+                                    งวด {tx.billing_period}
+                                  </div>
+                                )}
+                              </td>
                               <td className="py-2 px-3">
                                 <span
                                   className={`px-2 py-0.5 rounded-full text-[10px] ${
@@ -3799,6 +3806,7 @@ export default function AdminCondoApp() {
       {/* MODAL: EXPENSE ENTRY */}
       {showExpenseModal && (
         <ExpenseModal
+          currentPeriod={period}
           onClose={() => setShowExpenseModal(false)}
           onSuccess={() => {
             fetchData(period);
