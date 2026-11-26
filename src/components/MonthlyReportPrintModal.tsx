@@ -349,41 +349,23 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
                 </p>
               </div>
 
-              {/* 4. Room Payment Status Grid (PDPA Compliant - Room Numbers Only, NO Personal Names, NO Debt Amounts) */}
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black pb-1">
-                  <h3 className="font-bold text-black text-xs">
-                    2. สรุปสถานะการชำระเงินประจำเดือน (เฉพาะเลขห้องชุด เพื่อความโปร่งใสตามหลัก PDPA)
-                  </h3>
-                  <div className="flex items-center gap-3 text-[10px] font-bold">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="inline-block w-3 h-3 bg-emerald-100 border border-emerald-400 rounded-xs" />
-                      ชำระแล้ว ({paidRooms.length} ห้อง)
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <span className="inline-block w-3 h-3 bg-amber-100 border border-amber-400 rounded-xs" />
-                      รอชำระ ({unpaidRooms.length} ห้อง)
-                    </span>
-                  </div>
+              {/* 3. Monthly Collection Summary Banner (NO individual rooms listed) */}
+              <div className="p-3.5 bg-neutral-50 border border-neutral-300 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs print-avoid-break">
+                <div>
+                  <span className="font-bold text-neutral-800 text-xs block">
+                    📊 สรุปสถานะการชำระเงินของอาคาร (รอบบิล {period} • ทั้งหมด {rooms.length} ห้องชุด)
+                  </span>
+                  <span className="text-[10px] text-neutral-500">
+                    * ไม่ระบุเลขห้องหรือข้อมูลส่วนบุคคลตาม พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล (PDPA)
+                  </span>
                 </div>
-
-                <div className="grid grid-cols-5 gap-1 text-[9.5px]">
-                  {rooms.map((room) => {
-                    const isPaid = !!logMap[room.room_no]?.is_paid;
-                    return (
-                      <div
-                        key={room.room_no}
-                        className={`print-avoid-break px-2 py-1 rounded flex items-center justify-between border ${
-                          isPaid
-                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 font-medium'
-                            : 'bg-amber-50 border-amber-300 text-amber-900 font-semibold'
-                        }`}
-                      >
-                        <span className="font-mono font-bold">{formatRoomNo(room.room_no)}</span>
-                        <span className="font-mono text-[9px]">{isPaid ? '✓ ชำระแล้ว' : '⏳ รอชำระ'}</span>
-                      </div>
-                    );
-                  })}
+                <div className="flex items-center gap-3 text-xs font-bold font-mono">
+                  <span className="bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-lg border border-emerald-300">
+                    ✅ ชำระแล้ว {paidRooms.length} ห้อง ({collectionPct}%)
+                  </span>
+                  <span className="bg-amber-100 text-amber-900 px-3 py-1.5 rounded-lg border border-amber-300">
+                    ⏳ ยังไม่ชำระ {unpaidRooms.length} ห้อง
+                  </span>
                 </div>
               </div>
             </div>
@@ -432,25 +414,23 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
                 </div>
               </div>
 
-              {/* Annual Summary by Floor (Aggregated - No Individual Room Data) */}
-              <div className="space-y-1.5">
-                <h3 className="font-bold text-black text-xs border-b border-black pb-1">
-                  สถิติการจัดเก็บค่าส่วนกลางแยกตามชั้น (สถิติรวม ไม่เปิดเผยข้อมูลส่วนบุคคล)
-                </h3>
-                <div className="grid grid-cols-4 gap-2 text-[11px]">
-                  {[1, 2, 3, 4, 5, 6, 7, 8].map((floor) => {
-                    const floorRooms = rooms.filter((r) => r.floor === floor);
-                    const floorPaid = floorRooms.filter((r) => logMap[r.room_no]?.is_paid).length;
-                    const floorRate = floorRooms.length > 0 ? ((floorPaid / floorRooms.length) * 100).toFixed(0) : '0';
-                    return (
-                      <div key={floor} className="border border-neutral-300 p-2.5 rounded-lg bg-white">
-                        <div className="font-bold text-slate-800">ชั้น {floor} ({floorRooms.length} ห้อง)</div>
-                        <div className="text-neutral-600 text-[10px] mt-0.5">
-                          ชำระแล้ว: <b className="text-emerald-700">{floorPaid}</b> / {floorRooms.length} ({floorRate}%)
-                        </div>
-                      </div>
-                    );
-                  })}
+              {/* Annual Collection Summary Banner (NO floor or room breakdown) */}
+              <div className="p-3.5 bg-neutral-50 border border-neutral-300 rounded-xl flex flex-wrap items-center justify-between gap-3 text-xs print-avoid-break">
+                <div>
+                  <span className="font-bold text-neutral-800 text-xs block">
+                    📊 สรุปสถานะการชำระเงินของอาคาร ประจำปี {currentYear} (ทั้งหมด {rooms.length} ห้องชุด)
+                  </span>
+                  <span className="text-[10px] text-neutral-500">
+                    * สถิติภาพรวมเพื่อความโปร่งใส ไม่ระบุข้อมูลส่วนบุคคลตามหลักเกณฑ์ PDPA
+                  </span>
+                </div>
+                <div className="flex items-center gap-4 text-xs font-bold font-mono">
+                  <span className="bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-lg border border-emerald-300">
+                    ✅ ชำระครบถ้วน {paidRooms.length} ห้อง ({collectionPct}%)
+                  </span>
+                  <span className="bg-amber-100 text-amber-900 px-3 py-1.5 rounded-lg border border-amber-300">
+                    ⏳ มียอดค้างชำระ {unpaidRooms.length} ห้อง
+                  </span>
                 </div>
               </div>
             </div>
