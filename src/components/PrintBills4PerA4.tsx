@@ -442,12 +442,6 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       {/* Notes / Footer */}
                       <div className="mt-1 text-[9px] text-black text-center border-t border-neutral-400 pt-0.5">
                         <div>โปรดชำระเงินภายในวันที่ {bill.due_date} หากชำระแล้วแจ้งสลิปทาง LINE OA</div>
-                        <div className="font-semibold mt-0.5">
-                          📱 รับบิลทาง LINE OA พิมพ์รหัส:{' '}
-                          <b className="font-mono bg-white text-black px-1 py-0.2 rounded border border-black">
-                            {bill.line_reg_code}
-                          </b>
-                        </div>
                       </div>
                     </div>
                   </div>

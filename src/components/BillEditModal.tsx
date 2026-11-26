@@ -6,13 +6,14 @@
 import React, { useState } from 'react';
 import { Room, MeterLog, CondoConfig } from '@/types/condo';
 import { createClient } from '@/utils/supabase/client';
-import { formatRoomNo, calculateBill } from '@/utils/billing';
+import { formatRoomNo, calculateBill, calculateSuggestedLateFee } from '@/utils/billing';
 
 interface BillEditModalProps {
   room: Room;
   meterLog?: MeterLog | null;
   period: string;
   config: Partial<CondoConfig>;
+  allRooms?: Room[];
   onClose: () => void;
   onSaved: () => void;
 }
@@ -71,10 +72,20 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
   meterLog,
   period,
   config,
+  allRooms = [],
   onClose,
   onSaved,
 }) => {
   const supabase = createClient();
+
+  const otherOwnerRooms = (allRooms || []).filter(
+    (r) =>
+      r.owner_name &&
+      room.owner_name &&
+      r.owner_name.trim().toLowerCase() === room.owner_name.trim().toLowerCase() &&
+      r.room_no !== room.room_no
+  );
+  const [syncToAllOwnerRooms, setSyncToAllOwnerRooms] = useState(false);
 
   const initialPrev = meterLog ? Number(meterLog.prev_meter) : Number(room.latest_meter) || 0;
   const initialCurr = meterLog ? Number(meterLog.curr_meter) : initialPrev;
@@ -130,6 +141,13 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
     outstandingBalance,
     prevMeter,
     lateFee
+  );
+
+  const suggested = calculateSuggestedLateFee(
+    room,
+    period,
+    config,
+    previewBill.total_amount - lateFee
   );
 
   // Add a line item to the list
@@ -248,6 +266,58 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
         .eq('room_no', room.room_no);
 
       if (roomErr) throw roomErr;
+
+      // Batch sync items/discount to other rooms owned by this owner
+      if (syncToAllOwnerRooms && otherOwnerRooms.length > 0) {
+        for (const oroom of otherOwnerRooms) {
+          const { data: oLog } = await supabase
+            .from('meter_logs')
+            .select('*')
+            .eq('period', period)
+            .eq('room_no', oroom.room_no)
+            .maybeSingle();
+
+          const oprev = oLog ? Number(oLog.prev_meter) : Number(oroom.latest_meter) || 0;
+          const ocurr = oLog ? Number(oLog.curr_meter) : oprev;
+          const oLate = oLog ? Number(oLog.late_fee) || 0 : 0;
+          const oOut = Number(oroom.outstanding_balance) || 0;
+
+          const oBill = calculateBill(
+            oroom,
+            ocurr,
+            period,
+            config,
+            finalSpecialTotal,
+            finalSpecialNote,
+            oOut,
+            oprev,
+            oLate
+          );
+
+          await supabase.from('meter_logs').upsert(
+            {
+              period,
+              room_no: oroom.room_no,
+              prev_meter: oprev,
+              curr_meter: ocurr,
+              units_used: oBill.units_used,
+              water_amount: oBill.water_amount,
+              wastewater_amount: oBill.wastewater_amount,
+              common_fee_amount: oBill.common_fee,
+              late_fee: oLate,
+              special_items: finalSpecialTotal,
+              special_items_note: finalSpecialNote || null,
+              contribution_deducted: oBill.contribution_deducted,
+              prepaid_deducted: oBill.prepaid_deducted,
+              total_amount: oBill.total_amount,
+              note: finalSpecialNote || oLog?.note || null,
+              is_verified: true,
+              recorded_at: oLog?.recorded_at || new Date().toISOString(),
+            },
+            { onConflict: 'period,room_no' }
+          );
+        }
+      }
 
       onSaved();
       onClose();
@@ -514,12 +584,49 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Batch sync to other rooms owned by this owner */}
+            {otherOwnerRooms.length > 0 && (
+              <div className="mt-2.5 p-3 bg-blue-50/80 border border-blue-300 rounded-xl flex items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  id="syncOwnerRooms"
+                  checked={syncToAllOwnerRooms}
+                  onChange={(e) => setSyncToAllOwnerRooms(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded mt-0.5 cursor-pointer"
+                />
+                <label htmlFor="syncOwnerRooms" className="text-xs text-blue-950 cursor-pointer select-none">
+                  <span className="font-bold flex items-center gap-1">
+                    👥 กระจายรายการพิเศษ/ส่วนลดนี้ไปยังทุกห้องของเจ้าของท่านนี้
+                  </span>
+                  <span className="block text-[11px] text-blue-700 mt-0.5">
+                    คุณ <b>{room.owner_name}</b> ยังเป็นเจ้าของห้อง{' '}
+                    <span className="font-mono font-semibold">
+                      {otherOwnerRooms.map((r) => formatRoomNo(r.room_no)).join(', ')}
+                    </span>{' '}
+                    (รวมอีก {otherOwnerRooms.length} ห้อง)
+                  </span>
+                </label>
+              </div>
+            )}
           </div>
 
           {/* 3. Late Fee & Outstanding Balance */}
           <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
             <div>
-              <label className="text-slate-600 font-bold block mb-1">3. เบี้ยปรับชำระล่าช้า (บาท)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-slate-600 font-bold block text-xs">3. เบี้ยปรับชำระล่าช้า (บาท)</label>
+                {suggested.totalSuggestedLateFee > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setLateFeeStr(String(suggested.totalSuggestedLateFee))}
+                    className="text-[10px] bg-amber-600 hover:bg-amber-700 text-white font-bold px-2 py-0.5 rounded shadow-xs transition"
+                    title={`สูตร: ${suggested.formulaExplanation}`}
+                  >
+                    💡 ใช้ยอดแนะนำ
+                  </button>
+                )}
+              </div>
               <input
                 type="number"
                 step="any"
@@ -527,9 +634,14 @@ export const BillEditModal: React.FC<BillEditModalProps> = ({
                 onChange={(e) => setLateFeeStr(e.target.value)}
                 className="w-full border rounded-lg p-2 font-mono font-bold bg-white text-red-600"
               />
+              {suggested.totalSuggestedLateFee > 0 && (
+                <p className="text-[10px] text-amber-800 mt-1 font-mono">
+                  💡 {suggested.formulaExplanation}
+                </p>
+              )}
             </div>
             <div>
-              <label className="text-slate-600 font-bold block mb-1">4. ยอดค้างชำระยกมา (บาท)</label>
+              <label className="text-slate-600 font-bold block mb-1 text-xs">4. ยอดค้างชำระยกมา (บาท)</label>
               <input
                 type="number"
                 step="any"

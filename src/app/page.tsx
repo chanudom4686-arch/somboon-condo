@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 645 Management System
-// Version 2.4 - Daily Supabase Keep-Alive Cron (prevents 7-day inactivity pause)
+// Version 2.5 - Suggested Late Fee Engine, 2-Version Juristic/PDPA Reports, Multi-Room Owner Suite & Receipt Image Push
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -22,6 +22,7 @@ import { ExpenseModal } from '@/components/ExpenseModal';
 import { MeterReadingModal } from '@/components/MeterReadingModal';
 import { BillEditModal } from '@/components/BillEditModal';
 import { MonthlyReportPrintModal } from '@/components/MonthlyReportPrintModal';
+import { MultiRoomPayModal } from '@/components/MultiRoomPayModal';
 
 const THAI_MONTHS = [
   { num: '01', label: '01 - มกราคม' },
@@ -78,7 +79,9 @@ export default function AdminCondoApp() {
   // Shared Search Input (Room Range Buttons Removed as Requested)
   const [searchQuery, setSearchQuery] = useState('');
   const [auditFilter, setAuditFilter] = useState<'all' | 'has_photo' | 'unverified' | 'verified' | 'anomaly' | 'unread'>('all');
-  const [paymentFilter, setPaymentFilter] = useState<'all' | 'unpaid' | 'overdue' | 'paid' | 'late_paid' | 'line_notified' | 'phone_called'>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'unpaid' | 'overdue' | 'paid' | 'late_paid' | 'line_notified' | 'phone_called' | 'multi_room'>('all');
+  const [roomsViewMode, setRoomsViewMode] = useState<'individual' | 'by_owner'>('individual');
+  const [showMultiRoomPayModal, setShowMultiRoomPayModal] = useState(false);
 
   // Inline Meter Editing Drafts in Audit Tab
   const [inlineEdits, setInlineEdits] = useState<Record<string, { prev: string; curr: string }>>({});
@@ -297,6 +300,51 @@ export default function AdminCondoApp() {
     return Math.round((readCount / rooms.length) * 100);
   }, [readCount, rooms.length]);
 
+  const ownerCountMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    rooms.forEach((r) => {
+      const oName = (r.owner_name || '').trim();
+      if (oName) {
+        map[oName] = (map[oName] || 0) + 1;
+      }
+    });
+    return map;
+  }, [rooms]);
+
+  const ownerGroups = useMemo(() => {
+    const groups: Record<
+      string,
+      {
+        owner_name: string;
+        rooms: Room[];
+        totalOutstanding: number;
+        totalFundCredit: number;
+        totalPrepaid: number;
+      }
+    > = {};
+
+    rooms.forEach((r) => {
+      const oName = (r.owner_name || '').trim() || 'ไม่ระบุชื่อเจ้าของ';
+      if (!groups[oName]) {
+        groups[oName] = {
+          owner_name: oName,
+          rooms: [],
+          totalOutstanding: 0,
+          totalFundCredit: 0,
+          totalPrepaid: 0,
+        };
+      }
+      groups[oName].rooms.push(r);
+      groups[oName].totalOutstanding += Number(r.outstanding_balance) || 0;
+      groups[oName].totalFundCredit += Number(r.contribution_credit) || 0;
+      groups[oName].totalPrepaid += Number(r.prepaid_credit) || 0;
+    });
+
+    return Object.values(groups).sort(
+      (a, b) => b.rooms.length - a.rooms.length || a.owner_name.localeCompare(b.owner_name, 'th')
+    );
+  }, [rooms]);
+
   const filteredRooms = useMemo(() => {
     return rooms.filter((r) => {
       const formatted = formatRoomNo(r.room_no);
@@ -324,11 +372,12 @@ export default function AdminCondoApp() {
         else if (paymentFilter === 'late_paid') matchesTabFilter = !!log?.is_paid && !!log?.is_late_payment;
         else if (paymentFilter === 'line_notified') matchesTabFilter = log?.followup_status === 'line_notified';
         else if (paymentFilter === 'phone_called') matchesTabFilter = log?.followup_status === 'phone_called';
+        else if (paymentFilter === 'multi_room') matchesTabFilter = (ownerCountMap[(r.owner_name || '').trim()] || 0) > 1;
       }
 
       return matchesSearch && matchesTabFilter;
     });
-  }, [rooms, searchQuery, auditFilter, paymentFilter, activeTab, logMap, isCurrentPeriodPastDue]);
+  }, [rooms, searchQuery, auditFilter, paymentFilter, activeTab, logMap, isCurrentPeriodPastDue, ownerCountMap]);
 
   const calculatedBills = useMemo(() => {
     return rooms.map((room) => {
@@ -939,7 +988,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.4
+                  ระบบบริหารนิติบุคคล v2.5
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -1022,13 +1071,13 @@ export default function AdminCondoApp() {
       <nav className="bg-white border-b shadow-sm sticky top-[64px] z-30 overflow-x-auto text-xs print:hidden">
         <div className="max-w-7xl mx-auto flex">
           {[
-            { id: 'audit', label: '1. 🔍 ตรวจมิเตอร์ & รูปถ่าย', count: `${readCount}/${rooms.length}` },
-            { id: 'billing', label: '2. 🧾 ออกบิล / ส่วนลด / ส่ง LINE' },
-            { id: 'payments', label: '3. 💰 รับชำระ & ออกใบเสร็จ', count: `${paidRoomsCount}/${rooms.length}` },
-            { id: 'rooms', label: '4. 🏢 ทะเบียนห้องชุด & สมทบทุน' },
-            { id: 'accounting', label: '5. 📊 บัญชี & รายงานส่งมอบนิติ' },
-            { id: 'line', label: '6. 📲 LINE OA & ตั้งค่าคีย์เวิร์ด', count: `${lineRegisteredCount}/${rooms.length}` },
-            { id: 'settings', label: '7. ⚙️ ตั้งค่าระบบ' },
+            { id: 'audit', label: '🔍 ตรวจมิเตอร์ & รูปถ่าย', count: `${readCount}/${rooms.length}` },
+            { id: 'billing', label: '🧾 ออกบิล / ส่วนลด / ส่ง LINE' },
+            { id: 'payments', label: '💰 รับชำระ & ออกใบเสร็จ', count: `${paidRoomsCount}/${rooms.length}` },
+            { id: 'rooms', label: '🏢 ทะเบียนห้องชุด & สมทบทุน' },
+            { id: 'accounting', label: '📊 บัญชี & รายงานส่งมอบนิติ' },
+            { id: 'line', label: '📲 LINE OA & ตั้งค่าคีย์เวิร์ด', count: `${lineRegisteredCount}/${rooms.length}` },
+            { id: 'settings', label: '⚙️ ตั้งค่าระบบ' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1499,6 +1548,18 @@ export default function AdminCondoApp() {
                     >
                       ⏳ เลือกห้องค้างชำระที่มี LINE
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const multiRooms = rooms
+                          .filter((r) => (ownerCountMap[(r.owner_name || '').trim()] || 0) > 1)
+                          .map((r) => r.room_no);
+                        setSelectedRooms(multiRooms);
+                      }}
+                      className="px-2.5 py-1 bg-purple-900/80 hover:bg-purple-800 text-purple-200 border border-purple-700 rounded-lg font-medium"
+                    >
+                      👥 เลือกเฉพาะเจ้าของหลายห้อง
+                    </button>
                     {selectedRooms.length > 0 && (
                       <button
                         type="button"
@@ -1786,19 +1847,29 @@ export default function AdminCondoApp() {
                         </span>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      disabled={paidRoomsCount === 0}
-                      onClick={() =>
-                        handleOpenPrint(
-                          'receipt',
-                          rooms.filter((r) => !!logMap[r.room_no]?.is_paid).map((r) => r.room_no)
-                        )
-                      }
-                      className="mt-2 w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs shadow-xs"
-                    >
-                      🧾 พิมพ์ใบเสร็จรับเงินทั้งหมดที่ชำระแล้ว ({paidRoomsCount} ห้อง)
-                    </button>
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        disabled={paidRoomsCount === 0}
+                        onClick={() =>
+                          handleOpenPrint(
+                            'receipt',
+                            rooms.filter((r) => !!logMap[r.room_no]?.is_paid).map((r) => r.room_no)
+                          )
+                        }
+                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs shadow-xs"
+                      >
+                        🧾 พิมพ์ใบเสร็จ ({paidRoomsCount} ห้อง)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowMultiRoomPayModal(true)}
+                        className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs shadow-xs flex items-center justify-center gap-1"
+                      >
+                        <span>👥</span>
+                        <span>รวมชำระหลายห้อง</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1810,6 +1881,7 @@ export default function AdminCondoApp() {
                     { id: 'overdue', label: `🚨 ค้างชำระ (${overdueRoomsCount})` },
                     { id: 'paid', label: `✅ ชำระแล้วทั้งหมด (${paidRoomsCount})` },
                     { id: 'late_paid', label: `⏰ ชำระล่าช้า (${latePaidRoomsCount})` },
+                    { id: 'multi_room', label: `👥 เจ้าของหลายห้อง` },
                     { id: 'line_notified', label: `💬 ทวงในแชต LINE แล้ว` },
                     { id: 'phone_called', label: `📞 โทรติดตามแล้ว` },
                   ].map((f) => (
@@ -2034,13 +2106,143 @@ export default function AdminCondoApp() {
                       กดปุ่ม &quot;แก้ไข / เครดิต&quot; เพื่อตั้งค่าส่วนกลางห้องคู่ (600 บาท หรือ 1,000 บาท), ชื่อ-เบอร์โทร, และเครดิตสมทบทุน
                     </p>
                   </div>
-                  <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
-                    <div className="text-[11px] text-emerald-700">ยอดเครดิตสมทบทุนคงเหลือรวม</div>
-                    <div className="text-base font-bold text-emerald-900 font-mono">
-                      {totalContributionFund.toLocaleString()} บาท
+                  <div className="flex items-center gap-2">
+                    <div className="bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl">
+                      <div className="text-[11px] text-emerald-700">ยอดเครดิตสมทบทุนคงเหลือรวม</div>
+                      <div className="text-base font-bold text-emerald-900 font-mono">
+                        {totalContributionFund.toLocaleString()} บาท
+                      </div>
                     </div>
                   </div>
                 </div>
+
+                {/* View Mode Toggle: Individual Rooms vs. Grouped by Owner */}
+                <div className="flex items-center gap-2 print:hidden">
+                  <span className="text-xs font-bold text-slate-700">มุมมอง:</span>
+                  <button
+                    type="button"
+                    onClick={() => setRoomsViewMode('individual')}
+                    className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition ${
+                      roomsViewMode === 'individual'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    📋 แสดงรายห้อง ({rooms.length} ห้อง)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoomsViewMode('by_owner')}
+                    className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1.5 ${
+                      roomsViewMode === 'by_owner'
+                        ? 'bg-purple-600 text-white shadow-xs'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>👥</span>
+                    <span>จัดกลุ่มตามเจ้าของห้อง ({ownerGroups.length} ท่าน)</span>
+                  </button>
+                </div>
+
+                {roomsViewMode === 'by_owner' ? (
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 text-slate-600 border-b">
+                          <tr>
+                            <th className="py-2.5 px-3 text-left">เจ้าของร่วม</th>
+                            <th className="py-2.5 px-3 text-center">จำนวนห้อง</th>
+                            <th className="py-2.5 px-3 text-left">ห้องที่ถือครอง</th>
+                            <th className="py-2.5 px-3 text-right">ยอดหนี้ค้างสะสมรวม</th>
+                            <th className="py-2.5 px-3 text-right">💰 เครดิตสมทบรวม</th>
+                            <th className="py-2.5 px-3 text-right">💵 เงินฝากล่วงหน้ารวม</th>
+                            <th className="py-2.5 px-3 text-center">จัดการด่วน</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y text-slate-800">
+                          {ownerGroups.map((g) => {
+                            const isMulti = g.rooms.length > 1;
+                            return (
+                              <tr
+                                key={g.owner_name}
+                                className={`hover:bg-slate-50 ${isMulti ? 'bg-purple-50/20' : ''}`}
+                              >
+                                <td className="py-2.5 px-3">
+                                  <div className="font-bold text-slate-900 flex items-center gap-2">
+                                    <span>{g.owner_name}</span>
+                                    {isMulti && (
+                                      <span className="text-[10px] bg-purple-100 text-purple-800 border border-purple-300 px-2 py-0.2 rounded-full font-bold">
+                                        👑 เจ้าของ {g.rooms.length} ห้อง
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                    เบอร์: {g.rooms[0]?.owner_phone || '-'}
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3 text-center font-bold font-mono">
+                                  {g.rooms.length}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <div className="flex flex-wrap gap-1">
+                                    {g.rooms.map((r) => (
+                                      <button
+                                        key={r.room_no}
+                                        type="button"
+                                        onClick={() => setDetailRoom(r)}
+                                        className="font-mono text-[11px] font-bold px-1.5 py-0.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded"
+                                        title="คลิกเพื่อแก้ไขข้อมูลห้องนี้"
+                                      >
+                                        {formatRoomNo(r.room_no)}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold">
+                                  {g.totalOutstanding > 0 ? (
+                                    <span className="text-red-600">
+                                      {g.totalOutstanding.toLocaleString()} บ.
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">-</span>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-emerald-800 font-bold">
+                                  {g.totalFundCredit.toLocaleString()} บ.
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-blue-800 font-bold">
+                                  {g.totalPrepaid.toLocaleString()} บ.
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  {isMulti ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedRooms(g.rooms.map((r) => r.room_no));
+                                        setActiveTab('billing');
+                                      }}
+                                      className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-[10.5px] shadow-xs"
+                                    >
+                                      🧾 ออกบิลกลุ่มนี้
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setDetailRoom(g.rooms[0])}
+                                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[10.5px]"
+                                    >
+                                      แก้ไข
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
 
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
@@ -2130,6 +2332,7 @@ export default function AdminCondoApp() {
                     </table>
                   </div>
                 </div>
+                )}
               </div>
             )}
 
@@ -2381,7 +2584,7 @@ export default function AdminCondoApp() {
                         { tag: '{total_due}', desc: 'ยอดเงินสุทธิที่ต้องชำระ (บาท)' },
                         { tag: '{payment_status}', desc: 'สถานะ (ชำระแล้ว / รอชำระ)' },
                         { tag: '{due_date}', desc: 'วันที่ครบกำหนดชำระ (เช่น 5)' },
-                        { tag: '{bank_info}', desc: 'ชื่อธนาคาร เลขบัญชี และเลขผู้เสียภาษีนิติ' },
+                        { tag: '{bank_info}', desc: 'ชื่อธนาคาร เลขที่บัญชี และชื่อบัญชี' },
                         { tag: '{statement_12m}', desc: 'ประวัติการชำระย้อนหลัง 12 เดือน' },
                         { tag: '{fund_summary}', desc: 'สรุปยอดเงินระดมทุนซ่อมบำรุงตึก' },
                         { tag: '{building_finance}', desc: 'สรุปรายรับ-รายจ่ายรวมของอาคาร' },
@@ -2716,7 +2919,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.4)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.5)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
@@ -2824,17 +3027,7 @@ export default function AdminCondoApp() {
                 </div>
 
                 <div className="border-t pt-3 space-y-3">
-                  <h3 className="font-bold text-slate-800">ข้อมูลบัญชีรับเงิน & พร้อมเพย์</h3>
-                  <div>
-                    <label className="text-slate-700 font-bold block mb-1">เลขผู้เสียภาษีนิติ</label>
-                    <input
-                      type="text"
-                      value={promptpayNo}
-                      onChange={(e) => setPromptpayNo(e.target.value)}
-                      placeholder="เช่น 0812345678 หรือ 0105555555555"
-                      className="w-full border rounded-lg p-2 font-mono font-bold text-slate-800"
-                    />
-                  </div>
+                  <h3 className="font-bold text-slate-800">ข้อมูลบัญชีรับเงินของนิติบุคคล</h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-slate-500 block mb-1">ชื่อธนาคาร</label>
@@ -3268,6 +3461,7 @@ export default function AdminCondoApp() {
           meterLog={logMap[billEditRoom.room_no]}
           period={period}
           config={config}
+          allRooms={rooms}
           onClose={() => setBillEditRoom(null)}
           onSaved={() => {
             fetchData(period);
@@ -3279,6 +3473,7 @@ export default function AdminCondoApp() {
       {detailRoom && (
         <RoomDetailModal
           room={detailRoom}
+          allRooms={rooms}
           onClose={() => setDetailRoom(null)}
           onRoomUpdated={(updatedRoom) => {
             setRooms((prev) =>
@@ -3340,6 +3535,20 @@ export default function AdminCondoApp() {
           config={config}
           allYearLogs={allYearLogs}
           onClose={() => setShowMonthlyReportModal(false)}
+        />
+      )}
+
+      {/* MODAL: MULTI-ROOM BATCH PAYMENT */}
+      {showMultiRoomPayModal && (
+        <MultiRoomPayModal
+          rooms={rooms}
+          logMap={logMap}
+          period={period}
+          config={config}
+          onClose={() => setShowMultiRoomPayModal(false)}
+          onSuccess={() => {
+            fetchData(period);
+          }}
         />
       )}
     </div>

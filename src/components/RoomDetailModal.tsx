@@ -10,17 +10,28 @@ import { formatRoomNo } from '@/utils/billing';
 
 interface RoomDetailModalProps {
   room: Room;
+  allRooms?: Room[];
   onClose: () => void;
   onRoomUpdated: (updatedRoom: Room) => void;
 }
 
 export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
   room,
+  allRooms = [],
   onClose,
   onRoomUpdated,
 }) => {
   const supabase = createClient();
   const [activeTab, setActiveTab] = useState<'info' | 'wallet' | 'status'>('info');
+
+  const otherOwnerRooms = (allRooms || []).filter(
+    (r) =>
+      r.owner_name &&
+      room.owner_name &&
+      r.owner_name.trim().toLowerCase() === room.owner_name.trim().toLowerCase() &&
+      r.room_no !== room.room_no
+  );
+  const [syncContactToAllRooms, setSyncContactToAllRooms] = useState(false);
 
   // Form states
   const [status, setStatus] = useState(room.status || 'ปกติ');
@@ -82,8 +93,27 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
         .single();
 
       if (error) throw error;
+
+      // Sync contact info to other rooms of the same owner
+      if (syncContactToAllRooms && otherOwnerRooms.length > 0) {
+        for (const oroom of otherOwnerRooms) {
+          await supabase
+            .from('rooms')
+            .update({
+              owner_name: ownerName,
+              owner_phone: ownerPhone,
+              line_user_id: lineUserId || oroom.line_user_id,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('room_no', oroom.room_no);
+        }
+      }
+
       onRoomUpdated(data as Room);
-      setMessage({ text: 'บันทึกข้อมูลห้องสำเร็จ', type: 'success' });
+      setMessage({
+        text: `บันทึกข้อมูลสำเร็จ ${syncContactToAllRooms ? `(และซิงค์ข้อมูลไปยังอีก ${otherOwnerRooms.length} ห้องเรียบร้อย)` : ''}`,
+        type: 'success',
+      });
     } catch (err: any) {
       setMessage({ text: 'บันทึกล้มเหลว: ' + err.message, type: 'error' });
     } finally {
@@ -364,6 +394,24 @@ export const RoomDetailModal: React.FC<RoomDetailModalProps> = ({
                   />
                 </div>
               </div>
+
+              {otherOwnerRooms.length > 0 && (
+                <div className="mt-2.5 p-2.5 bg-blue-50 border border-blue-300 rounded-xl flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    id="syncContactRooms"
+                    checked={syncContactToAllRooms}
+                    onChange={(e) => setSyncContactToAllRooms(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded mt-0.5 cursor-pointer"
+                  />
+                  <label htmlFor="syncContactRooms" className="text-xs text-blue-950 cursor-pointer select-none">
+                    <span className="font-bold">👥 ซิงค์ชื่อและเบอร์โทรนี้ไปยังทุกห้องของเจ้าของท่านนี้ด้วย</span>
+                    <span className="block text-[10.5px] text-blue-700 mt-0.5 font-mono">
+                      ห้อง: {otherOwnerRooms.map((r) => formatRoomNo(r.room_no)).join(', ')} (รวม {otherOwnerRooms.length} ห้อง)
+                    </span>
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="border-t pt-2 mt-2">

@@ -1,7 +1,121 @@
 // Billing calculation and formatting utilities
-// Version 2.0 - 7-Digit LINE Registration Code (3-digit room + last 4 digits of phone), paired rooms, and automatic overdue detection
+// Version 2.5 - Suggested Late Fee Engine (50 THB/day + 2% compound rollover), 7-Digit LINE Registration Code, paired rooms, and automatic overdue detection
 
 import { Room, CondoConfig, BillCalculationResult } from '../types/condo';
+
+export interface SuggestedLateFeeResult {
+  daysLate: number;
+  dailyRate: number;
+  dailyFeeTotal: number;
+  rolloverMonths: number;
+  rolloverInterestRate: number;
+  rolloverInterestFee: number;
+  totalSuggestedLateFee: number;
+  formulaExplanation: string;
+}
+
+// Calculate recommended late fee based on rule:
+// 1. Paid after 5th of month: 50 THB/day per room.
+// 2. Rollover unpaid past 5th of next periods: +2% compound interest on balance + 50 THB/day.
+export function calculateSuggestedLateFee(
+  room: Room,
+  period: string, // e.g. "2026-11"
+  config: Partial<CondoConfig>,
+  baseAmount = 0,
+  targetDate?: Date
+): SuggestedLateFeeResult {
+  try {
+    const dueDay = Number(config.BILL_DUE_DAY) || 5;
+    const dailyRate = 50; // 50 THB/day per room
+    const monthlyRate = 0.02; // 2% compound per rollover period past 5th
+
+    const [pYearStr, pMonthStr] = (period || '').split('-');
+    const pYear = parseInt(pYearStr, 10);
+    const pMonth = parseInt(pMonthStr, 10);
+    if (!pYear || !pMonth) {
+      return {
+        daysLate: 0,
+        dailyRate,
+        dailyFeeTotal: 0,
+        rolloverMonths: 0,
+        rolloverInterestRate: monthlyRate,
+        rolloverInterestFee: 0,
+        totalSuggestedLateFee: 0,
+        formulaExplanation: 'ไม่พบข้อมูลงวดบิล',
+      };
+    }
+
+    const nowBkkStr = (targetDate || new Date()).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }); // YYYY-MM-DD
+    const [cYearStr, cMonthStr, cDayStr] = nowBkkStr.split('-');
+    const cYear = parseInt(cYearStr, 10);
+    const cMonth = parseInt(cMonthStr, 10);
+    const cDay = parseInt(cDayStr, 10);
+
+    const monthDiff = (cYear - pYear) * 12 + (cMonth - pMonth);
+    const dueDateMidnight = new Date(Date.UTC(pYear, pMonth - 1, dueDay));
+    const currentDateMidnight = new Date(Date.UTC(cYear, cMonth - 1, cDay));
+
+    const diffMs = currentDateMidnight.getTime() - dueDateMidnight.getTime();
+    const daysLate = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+
+    if (daysLate === 0) {
+      return {
+        daysLate: 0,
+        dailyRate,
+        dailyFeeTotal: 0,
+        rolloverMonths: 0,
+        rolloverInterestRate: monthlyRate,
+        rolloverInterestFee: 0,
+        totalSuggestedLateFee: 0,
+        formulaExplanation: `ยังไม่พ้นกำหนดชำระ (ครบกำหนดวันที่ ${String(dueDay).padStart(2, '0')}/${String(pMonth).padStart(2, '0')}/${pYear})`,
+      };
+    }
+
+    const dailyFeeTotal = daysLate * dailyRate;
+
+    let rolloverMonths = 0;
+    if (monthDiff > 0) {
+      rolloverMonths = cDay > dueDay ? monthDiff : Math.max(0, monthDiff - 1);
+    }
+
+    let rolloverInterestFee = 0;
+    const principal = Math.max(0, baseAmount + (Number(room.outstanding_balance) || 0));
+    if (rolloverMonths > 0 && principal > 0) {
+      const compoundFactor = Math.pow(1 + monthlyRate, rolloverMonths) - 1;
+      rolloverInterestFee = Math.round(principal * compoundFactor * 100) / 100;
+    }
+
+    const totalSuggestedLateFee = Math.round(dailyFeeTotal + rolloverInterestFee);
+
+    let formulaExplanation = `เกินกำหนด ${daysLate} วัน × 50 บ. = ${dailyFeeTotal.toLocaleString()} บ.`;
+    if (rolloverMonths > 0 && rolloverInterestFee > 0) {
+      formulaExplanation += ` + ดอกเบี้ยค้างยกยอด ${rolloverMonths} รอบ (2% ทบต้น) = +${rolloverInterestFee.toLocaleString()} บ.`;
+    }
+
+    return {
+      daysLate,
+      dailyRate,
+      dailyFeeTotal,
+      rolloverMonths,
+      rolloverInterestRate: monthlyRate,
+      rolloverInterestFee,
+      totalSuggestedLateFee,
+      formulaExplanation,
+    };
+  } catch (err: any) {
+    console.error('Error calculating late fee:', err);
+    return {
+      daysLate: 0,
+      dailyRate: 50,
+      dailyFeeTotal: 0,
+      rolloverMonths: 0,
+      rolloverInterestRate: 0.02,
+      rolloverInterestFee: 0,
+      totalSuggestedLateFee: 0,
+      formulaExplanation: 'เกิดข้อผิดพลาดในการคำนวณค่าปรับ',
+    };
+  }
+}
 
 // Map 3-digit prefix to paired room_no in database
 export const PAIRED_ROOM_LOOKUP: Record<string, string> = {

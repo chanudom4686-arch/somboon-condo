@@ -616,7 +616,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           .order('room_no', { ascending: true });
         const linkedRoomsList = linkedRoomsData || [];
 
-        const bankInfoText = `ธนาคาร (Bank): ${config.BANK_NAME || 'กสิกรไทย'}\nเลขที่บัญชี (Account No.): ${config.BANK_ACCOUNT_NO || '-'}\nชื่อบัญชี (Account Name): ${config.BANK_ACCOUNT_NAME || condoName}\nเลขผู้เสียภาษีนิติ: ${config.PROMPTPAY_NO || '-'}`;
+        const bankInfoText = `ธนาคาร (Bank): ${config.BANK_NAME || 'กสิกรไทย'}\nเลขที่บัญชี (Account No.): ${config.BANK_ACCOUNT_NO || '-'}\nชื่อบัญชี (Account Name): ${config.BANK_ACCOUNT_NAME || condoName}`;
 
         if (matchedRule) {
           const mode = matchedRule.reply_mode || 'custom_text';
@@ -817,7 +817,31 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           }
 
           const finalReply = renderedTexts.join('\n\n━━━━━━━━━━━━━━\n\n');
-          const replyBubbles: any[] = [{ type: 'text', text: finalReply || 'ข้อมูลใบแจ้งหนี้' }];
+          const replyBubbles: any[] = [];
+
+          // If querying receipt, check if any room has an uploaded receipt image
+          if (mode === 'system_receipt' || text.includes('ใบเสร็จ') || text.toLowerCase().includes('receipt')) {
+            for (const r of linkedRoomsList) {
+              const { data: paidLog } = await supabase
+                .from('meter_logs')
+                .select('*')
+                .eq('room_no', r.room_no)
+                .eq('is_paid', true)
+                .order('period', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              if (paidLog?.slip_url && (paidLog.slip_url.includes('receipt') || paidLog.slip_url.startsWith('https://'))) {
+                replyBubbles.push({
+                  type: 'image',
+                  originalContentUrl: paidLog.slip_url,
+                  previewImageUrl: paidLog.slip_url,
+                });
+              }
+            }
+          }
+
+          replyBubbles.push({ type: 'text', text: finalReply || 'ข้อมูลใบแจ้งหนี้ / ใบเสร็จ' });
 
           await replyLineMessage(replyToken, replyBubbles, accessToken);
           continue;
