@@ -138,3 +138,18 @@ export interface BillCalculationResult {
   due_date: string;
   line_reg_code?: string;
 }
+
+export interface Transaction {
+  id: string;
+  tx_date: string;
+  category: string;
+  type: 'income' | 'expense' | 'รายรับ' | 'รายจ่าย' | string;
+  amount: number;
+  payment_method?: string | null;
+  slip_url?: string | null;
+  note?: string | null;
+  fund_type: 'operating' | 'maintenance_fund' | string;
+  room_no?: string | null;
+  is_paid?: boolean;
+  created_at?: string;
+}

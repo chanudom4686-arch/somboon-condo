@@ -21,6 +21,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({ onClose, onSuccess }
     new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' })
   );
   const [paymentMethod, setPaymentMethod] = useState<string>('โอนเงิน');
+  const [isPaid, setIsPaid] = useState<boolean>(true);
   const [note, setNote] = useState<string>('');
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -83,6 +84,7 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({ onClose, onSuccess }
         payment_method: paymentMethod,
         slip_url: receiptUrl,
         note: note || category,
+        is_paid: isPaid,
       });
 
       if (txErr) throw txErr;
@@ -207,6 +209,40 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({ onClose, onSuccess }
               <option value="เงินสด">เงินสด</option>
               <option value="เช็ค">เช็คสั่งจ่าย</option>
             </select>
+          </div>
+
+          {/* Payment Status (ชำระแล้ว / ยังไม่ชำระ) */}
+          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <label className="text-slate-800 font-bold block mb-1.5">สถานะการชำระเงิน</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setIsPaid(true)}
+                className={`py-2 px-3 rounded-lg border font-bold flex items-center justify-center gap-1.5 transition ${
+                  isPaid
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                <span>✅ ชำระแล้ว (Paid)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPaid(false)}
+                className={`py-2 px-3 rounded-lg border font-bold flex items-center justify-center gap-1.5 transition ${
+                  !isPaid
+                    ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                <span>⏳ ยังไม่ชำระ (Unpaid)</span>
+              </button>
+            </div>
+            {!isPaid && (
+              <p className="text-[10px] text-amber-700 mt-1.5">
+                * รายการนี้จะถูกบันทึกเป็นหนี้ค้างจ่าย และสามารถคลิกเปลี่ยนเป็น &quot;ชำระแล้ว&quot; ได้ในภายหลังเมื่อจ่ายเงินเสร็จสิ้น
+              </p>
+            )}
           </div>
 
           {/* Description */}

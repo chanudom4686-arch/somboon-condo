@@ -62,12 +62,14 @@ export const DEFAULT_LINE_TEMPLATES: Record<
       {
         id: '1',
         type: 'text',
-        text: `🔍 พบข้อมูลห้องพัก \nห้อง: {room_no} \nชื่อ: คุณ {owner_name}\n     🔒 ยืนยันตัวตน กรุณาพิมพ์ "เลข 4 ตัวท้ายของเบอร์โทรศัพท์" ที่แจ้งไว้กับนิติฯ ส่งมาในแชทนี้ครับ (เช่น 1234)\n\n──────────\n\n🔍 Room Information\nRoom: {room_no} \nName: {owner_name}\n      🔒 Verification For security, please type the last 4 digits of your registered phone number in this chat (e.g., 1234).`,
+        text: `🔍 พบข้อมูลห้องพัก \nห้อง: {room_no} \nชื่อ: คุณ {owner_name}\nเบอร์โทรศัพท์: {masked_phone}\n     🔒 ยืนยันตัวตน กรุณาพิมพ์ "เลข 4 ตัวท้ายของเบอร์โทรศัพท์" ที่แจ้งไว้กับนิติฯ ส่งมาในแชทนี้ครับ (เช่น 1234)\n\n──────────\n\n🔍 Room Information\nRoom: {room_no} \nName: {owner_name}\nPhone: {masked_phone}\n      🔒 Verification For security, please type the last 4 digits of your registered phone number in this chat (e.g., 1234).`,
       },
     ],
     allowedTags: [
       { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
       { tag: '{owner_name}', label: 'ชื่อเจ้าของ', desc: 'คุณสมศักดิ์' },
+      { tag: '{masked_phone}', label: 'เบอร์โทรซ่อน 4 ตัวท้าย', desc: '081-403-XXXX' },
+      { tag: '{phone}', label: 'เบอร์โทรศัพท์', desc: '081-403-XXXX' },
       { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
     ],
   },

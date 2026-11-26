@@ -494,6 +494,7 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
                         <th className="border border-black py-1.5 px-2 text-left">หมวดหมู่</th>
                         <th className="border border-black py-1.5 px-2 text-left">รายละเอียด</th>
                         <th className="border border-black py-1.5 px-2 text-right">จำนวนเงิน (บาท)</th>
+                        <th className="border border-black py-1.5 px-2 text-center">สถานะ</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -507,6 +508,9 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
                           <td className="border border-black py-1 px-2">{tx.note || '-'}</td>
                           <td className="border border-black py-1 px-2 text-right font-mono font-bold">
                             {Number(tx.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="border border-black py-1 px-2 text-center font-bold">
+                            {tx.is_paid !== false ? 'ชำระแล้ว' : '⏳ ยังไม่ชำระ'}
                           </td>
                         </tr>
                       ))}

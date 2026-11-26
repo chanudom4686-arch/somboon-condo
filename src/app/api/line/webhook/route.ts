@@ -452,9 +452,15 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             config.LINE_REG_PROMPT_PHONE,
             DEFAULT_LINE_TEMPLATES.LINE_REG_PROMPT_PHONE.defaultBubbles
           );
+          const maskedPhoneStr = roomsWithPhone
+            .map((r) => maskPhoneLast4(r.owner_phone || r.tenant_phone))
+            .filter(Boolean)
+            .join(', ');
           const promptMessages = buildLineMessagesFromBubbles(promptBubbles, {
             room_no: roomsWithPhone.map((r) => formatRoomNo(r.room_no)).join(', '),
             owner_name: roomsWithPhone.map((r) => r.owner_name || r.tenant_name || '').filter(Boolean).join(', '),
+            masked_phone: maskedPhoneStr,
+            phone: maskedPhoneStr,
             condo_name: condoName,
             admin_hours: '12.00 - 24.00 น.',
           });

@@ -81,6 +81,7 @@ export default function AdminCondoApp() {
 
   // Shared Search Input (Room Range Buttons Removed as Requested)
   const [searchQuery, setSearchQuery] = useState('');
+  const [txStatusFilter, setTxStatusFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
   const [auditFilter, setAuditFilter] = useState<'all' | 'has_photo' | 'unverified' | 'verified' | 'anomaly' | 'unread'>('all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'unpaid' | 'overdue' | 'paid' | 'receipt_unsent' | 'receipt_sent' | 'late_paid' | 'line_notified' | 'phone_called' | 'multi_room'>('all');
   const [roomsViewMode, setRoomsViewMode] = useState<'individual' | 'by_owner'>('individual');
@@ -849,6 +850,21 @@ export default function AdminCondoApp() {
       .eq('id', rule.id);
     setLineRules((prev) =>
       prev.map((r) => (r.id === rule.id ? { ...r, is_active: !r.is_active } : r))
+    );
+  };
+
+  const handleToggleTxPaid = async (txId: string, currentStatus: boolean) => {
+    const newStatus = !currentStatus;
+    const { error } = await supabase
+      .from('transactions')
+      .update({ is_paid: newStatus })
+      .eq('id', txId);
+    if (error) {
+      alert('ไม่สามารถอัปเดตสถานะได้: ' + error.message);
+      return;
+    }
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === txId ? { ...t, is_paid: newStatus } : t))
     );
   };
 
@@ -2497,8 +2513,45 @@ export default function AdminCondoApp() {
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="p-3 border-b flex justify-between items-center">
-                    <h4 className="font-bold text-slate-800 text-xs">รายการรับ-จ่ายล่าสุด</h4>
+                  <div className="p-3 border-b flex flex-wrap justify-between items-center gap-2">
+                    <div className="flex items-center gap-3">
+                      <h4 className="font-bold text-slate-800 text-xs">รายการรับ-จ่ายล่าสุด</h4>
+                      <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setTxStatusFilter('all')}
+                          className={`px-2.5 py-0.5 rounded font-bold transition ${
+                            txStatusFilter === 'all'
+                              ? 'bg-white text-slate-900 shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          ทั้งหมด ({transactions.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTxStatusFilter('paid')}
+                          className={`px-2.5 py-0.5 rounded font-bold transition ${
+                            txStatusFilter === 'paid'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          ✅ ชำระแล้ว ({transactions.filter((t) => t.is_paid !== false).length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTxStatusFilter('unpaid')}
+                          className={`px-2.5 py-0.5 rounded font-bold transition ${
+                            txStatusFilter === 'unpaid'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          ⏳ ยังไม่ชำระ ({transactions.filter((t) => (t.type === 'expense' || t.type === 'รายจ่าย') && t.is_paid === false).length})
+                        </button>
+                      </div>
+                    </div>
                     <span className="text-[11px] text-slate-500">แสดง 200 รายการล่าสุด</span>
                   </div>
                   <div className="overflow-x-auto">
@@ -2511,62 +2564,90 @@ export default function AdminCondoApp() {
                           <th className="py-2 px-3 text-left">หมวดหมู่ / รายละเอียด</th>
                           <th className="py-2 px-3 text-right">จำนวนเงิน</th>
                           <th className="py-2 px-3 text-left">ช่องทาง</th>
+                          <th className="py-2 px-3 text-center">สถานะการชำระ</th>
                           <th className="py-2 px-3 text-center">จัดการ</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y text-slate-800">
-                        {transactions.map((tx) => (
-                          <tr key={tx.id} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 text-slate-500">{tx.tx_date}</td>
-                            <td className="py-2 px-3">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] ${
-                                  tx.fund_type === 'maintenance_fund'
-                                    ? 'bg-emerald-100 text-emerald-800 font-bold'
-                                    : 'bg-slate-100 text-slate-700'
-                                }`}
-                              >
-                                {tx.fund_type === 'maintenance_fund' ? 'ซ่อมบำรุงตึก' : 'ดำเนินงาน'}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3">
-                              <span
-                                className={`font-bold ${
+                        {transactions
+                          .filter((tx) => {
+                            if (txStatusFilter === 'paid') return tx.is_paid !== false;
+                            if (txStatusFilter === 'unpaid')
+                              return (tx.type === 'expense' || tx.type === 'รายจ่าย') && tx.is_paid === false;
+                            return true;
+                          })
+                          .map((tx) => (
+                            <tr key={tx.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 text-slate-500">{tx.tx_date}</td>
+                              <td className="py-2 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] ${
+                                    tx.fund_type === 'maintenance_fund'
+                                      ? 'bg-emerald-100 text-emerald-800 font-bold'
+                                      : 'bg-slate-100 text-slate-700'
+                                  }`}
+                                >
+                                  {tx.fund_type === 'maintenance_fund' ? 'ซ่อมบำรุงตึก' : 'ดำเนินงาน'}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <span
+                                  className={`font-bold ${
+                                    tx.type === 'รายรับ' || tx.type === 'income'
+                                      ? 'text-emerald-600'
+                                      : 'text-red-600'
+                                  }`}
+                                >
+                                  {tx.type === 'รายรับ' || tx.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <div className="font-medium">{tx.category}</div>
+                                <div className="text-[10px] text-slate-500">{tx.note}</div>
+                              </td>
+                              <td
+                                className={`py-2 px-3 text-right font-mono font-bold ${
                                   tx.type === 'รายรับ' || tx.type === 'income'
                                     ? 'text-emerald-600'
                                     : 'text-red-600'
                                 }`}
                               >
-                                {tx.type === 'รายรับ' || tx.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3">
-                              <div className="font-medium">{tx.category}</div>
-                              <div className="text-[10px] text-slate-500">{tx.note}</div>
-                            </td>
-                            <td
-                              className={`py-2 px-3 text-right font-mono font-bold ${
-                                tx.type === 'รายรับ' || tx.type === 'income'
-                                  ? 'text-emerald-600'
-                                  : 'text-red-600'
-                              }`}
-                            >
-                              {tx.type === 'รายรับ' || tx.type === 'income'
-                                ? `+${Number(tx.amount).toLocaleString()}`
-                                : `-${Number(tx.amount).toLocaleString()}`}
-                            </td>
-                            <td className="py-2 px-3 text-slate-500">{tx.payment_method || '-'}</td>
-                            <td className="py-2 px-3 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteTransaction(tx.id)}
-                                className="text-red-500 hover:text-red-700 font-bold text-[11px]"
-                              >
-                                ลบ
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                                {tx.type === 'รายรับ' || tx.type === 'income'
+                                  ? `+${Number(tx.amount).toLocaleString()}`
+                                  : `-${Number(tx.amount).toLocaleString()}`}
+                              </td>
+                              <td className="py-2 px-3 text-slate-500">{tx.payment_method || '-'}</td>
+                              <td className="py-2 px-3 text-center">
+                                {tx.type === 'expense' || tx.type === 'รายจ่าย' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleTxPaid(tx.id, tx.is_paid !== false)}
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition inline-flex items-center gap-1 cursor-pointer ${
+                                      tx.is_paid !== false
+                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
+                                        : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 animate-pulse'
+                                    }`}
+                                    title="คลิกเพื่อสลับสถานะ: ชำระแล้ว / ยังไม่ชำระ"
+                                  >
+                                    {tx.is_paid !== false ? '✅ ชำระแล้ว' : '⏳ ยังไม่ชำระ'}
+                                  </button>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 inline-block">
+                                    ✅ รับแล้ว
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTransaction(tx.id)}
+                                  className="text-red-500 hover:text-red-700 font-bold text-[11px]"
+                                >
+                                  ลบ
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
                       </tbody>
                     </table>
                   </div>
