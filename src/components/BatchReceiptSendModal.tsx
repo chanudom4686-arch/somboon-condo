@@ -621,7 +621,7 @@ export const BatchReceiptSendModal: React.FC<BatchReceiptSendModalProps> = ({
 
                 {/* Receipt Footer */}
                 <div className="text-[9.5px] text-center text-neutral-500 pt-1 border-t border-neutral-300">
-                  ออกโดย: ระบบบริหารจัดการคอนโดมิเนียม • สมบูรณ์คอนโดทาวน์ (674) / Somboon Condo Town
+                  {config.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา'}
                 </div>
               </div>
             );

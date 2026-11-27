@@ -257,6 +257,9 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                   log?.paid_type === 'cash' || log?.paid_type === 'เงินสด'
                     ? 'เงินสด (Cash)'
                     : 'โอนเงินเข้าบัญชีธนาคาร (Bank Transfer)';
+                const showLineQr = config.SHOW_PRINT_LINE_QR !== 'false';
+                const lineQrUrl = config.LINE_QR_IMAGE_URL || '';
+                const receiptFooterText = config.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา';
 
                 return (
                   <div
@@ -414,26 +417,45 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                           </div>
                         </div>
                       ) : (
-                        <div className="flex gap-2 items-center bg-white p-1.5 rounded border border-black text-black">
-                          {qrUrl ? (
-                            <img
-                              src={qrUrl}
-                              alt="PromptPay QR"
-                              className="w-16 h-16 border border-black rounded bg-white p-0.5"
-                            />
-                          ) : (
-                            <div className="w-16 h-16 border border-black rounded bg-neutral-100 flex items-center justify-center text-[9px] text-black text-center">
-                              QR พร้อมเพย์
+                        <div className="flex gap-2 items-center bg-white p-1 rounded border border-black text-black">
+                          {/* PromptPay QR */}
+                          <div className="flex flex-col items-center shrink-0">
+                            {qrUrl ? (
+                              <img
+                                src={qrUrl}
+                                alt="PromptPay QR"
+                                className={`${showLineQr && lineQrUrl ? 'w-14 h-14' : 'w-16 h-16'} border border-black rounded bg-white p-0.5 object-contain`}
+                              />
+                            ) : (
+                              <div
+                                className={`${showLineQr && lineQrUrl ? 'w-14 h-14' : 'w-16 h-16'} border border-black rounded bg-neutral-100 flex items-center justify-center text-[8px] text-black text-center`}
+                              >
+                                QR พร้อมเพย์
+                              </div>
+                            )}
+                            <span className="text-[7.5px] font-bold mt-0.5">PromptPay</span>
+                          </div>
+
+                          {/* LINE OA QR Code (If enabled) */}
+                          {showLineQr && lineQrUrl && (
+                            <div className="flex flex-col items-center shrink-0">
+                              <img
+                                src={lineQrUrl}
+                                alt="LINE OA QR"
+                                className="w-14 h-14 border border-black rounded bg-white p-0.5 object-contain"
+                              />
+                              <span className="text-[7.5px] font-bold mt-0.5">LINE OA</span>
                             </div>
                           )}
-                          <div className="text-[10px] leading-tight flex-1 text-black">
-                            <div className="font-bold">สแกนจ่ายพร้อมเพย์ / PromptPay QR</div>
-                            <div>หรือโอน / Transfer: {bankName}</div>
-                            <div className="font-mono font-bold">{bankAccNo}</div>
+
+                          <div className="text-[9.5px] leading-tight flex-1 text-black min-w-0">
+                            <div className="font-bold truncate">สแกนจ่าย / พร้อมเพย์ QR</div>
+                            <div className="truncate">โอน: {bankName}</div>
+                            <div className="font-mono font-bold truncate">{bankAccNo}</div>
                             <div className="truncate">{bankAccName}</div>
                             {bill.contribution_after > 0 && (
-                              <div className="font-semibold mt-0.5">
-                                เครดิตคงเหลือ / Credit: {bill.contribution_after.toLocaleString()} ฿
+                              <div className="font-semibold text-[8.5px] mt-0.5 truncate">
+                                เครดิต / Credit: {bill.contribution_after.toLocaleString()} ฿
                               </div>
                             )}
                           </div>
@@ -444,7 +466,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       <div className="mt-1 text-[9px] text-black text-center border-t border-neutral-400 pt-0.5">
                         <div>
                           {isReceipt
-                            ? 'เอกสารนี้ออกโดยระบบบริหารจัดการอาคารชุด สมบูรณ์คอนโดทาวน์ (674) / Somboon Condo Town (674)'
+                            ? receiptFooterText
                             : `โปรดชำระภายในวันที่ ${bill.due_date} หากโอนแล้วแจ้งสลิปทาง LINE OA / Please pay by due date & notify via LINE OA`}
                         </div>
                       </div>

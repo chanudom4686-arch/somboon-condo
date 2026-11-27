@@ -1,5 +1,5 @@
 // Types for Condo 674 Management System
-// Version 1.9 - Somboon Condo Town 674 & Multiple Bubbles Support
+// Version 2.15 - Receipt Footer Config, Print LINE QR, and Multi-bubble Fixes
 
 export type RoomType = 'ห้องเล็ก' | 'ห้องใหญ่' | 'ห้องคู่ (600)' | 'ห้องคู่ (1000)' | 'ห้องคู่ (800)' | 'small' | 'large';
 export type RoomStatus = 'ปกติ' | 'ติดต่อไม่ได้' | 'ธนาคารยึด' | 'รอขาย' | 'normal' | 'uncontactable' | 'bank_seized' | 'pending_sale';
@@ -109,7 +109,10 @@ export interface CondoConfig {
   LINE_CHANNEL_SECRET: string;
   LINE_CHANNEL_ACCESS_TOKEN: string;
   LINE_GREETING_MESSAGE: string;
-  [key: string]: string;
+  RECEIPT_FOOTER_TEXT?: string;
+  SHOW_PRINT_LINE_QR?: string; // 'true' | 'false'
+  LINE_QR_IMAGE_URL?: string;
+  [key: string]: string | undefined;
 }
 
 export interface BillCalculationResult {

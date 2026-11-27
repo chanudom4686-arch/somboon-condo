@@ -1,7 +1,7 @@
 // LINE OA Webhook Handler with Multi-Room Comma-Separated 3-Step Registration (e.g. "001,002"),
 // Multi-Room Bill/Receipt/Statement Support, Bilingual (TH/EN) Commands, Follow Event Welcome,
 // and Admin Working Hours (12.00 - 24.00) — Text-only (No meter photo sent to residents)
-// Version 2.3
+// Version 2.15 - Multi-bubble separated balloon delivery and multi-room consolidated total
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -838,14 +838,35 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             buildingFinanceText = `• รายรับรวมของอาคาร (Total Income): +${totalIn.toLocaleString()} บาท\n• รายจ่ายรวมของอาคาร (Total Expense): -${totalOut.toLocaleString()} บาท\n• สถานะดุลการเงินปัจจุบัน (Net Balance): ${netBal >= 0 ? `✅ คงเหลือสุทธิ +${netBal.toLocaleString()} บาท` : `⚠️ ติดลบ ${netBal.toLocaleString()} บาท`}`;
           }
 
-          // Build response for 1 or multiple linked rooms
+          // Pre-fetch and calculate bill details for each target room
           const targetRooms = linkedRoomsList.length > 0 ? linkedRoomsList : [null];
-          const renderedTexts: string[] = [];
+          const roomCalculations: Array<{
+            targetRoom: any;
+            roomNoFormatted: string;
+            ownerName: string;
+            prevMeter: number;
+            currMeter: number;
+            waterUnits: number;
+            waterOnlyAmt: string;
+            wastewaterOnlyAmt: string;
+            waterTotal: string;
+            commonFee: string;
+            extraItems: string;
+            totalDue: string;
+            totalDueNum: number;
+            paymentStatus: string;
+            statement12mText: string;
+          }> = [];
+
           const photoUrls: string[] = [];
+          let consolidatedTotalAmount = 0;
+          const multiRoomList: Array<{ roomNo: string; amount: number; isPaid: boolean }> = [];
+          const consolidatedOwnerName =
+            linkedRoomsList[0]?.owner_name || linkedRoomsList[0]?.tenant_name || 'ท่านเจ้าของร่วม';
 
           for (const targetRoom of targetRooms) {
             let roomNoFormatted = targetRoom ? formatRoomNo(targetRoom.room_no) : 'ยังไม่ผูกห้อง (Not Linked)';
-            let ownerName = targetRoom ? (targetRoom.owner_name || targetRoom.tenant_name || 'เจ้าของห้อง') : '-';
+            let ownerName = targetRoom ? targetRoom.owner_name || targetRoom.tenant_name || 'เจ้าของห้อง' : '-';
             let prevMeter = targetRoom ? Number(targetRoom.latest_meter) || 0 : 0;
             let currMeter = prevMeter;
             let waterUnits = 0;
@@ -855,6 +876,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             let commonFee = '0.00';
             let extraItems = '';
             let totalDue = '0.00';
+            let totalDueNum = 0;
             let paymentStatus = '⏳ รอชำระ / Pending';
 
             if (targetRoom) {
@@ -898,14 +920,18 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
                 });
               } else if (bill.special_items !== 0) {
                 extraLines.push(
-                  `• ${bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'} (${bill.special_items_note || '-'}): ${bill.special_items > 0 ? '+' : ''}${bill.special_items.toLocaleString()} บาท`
+                  `• ${bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'} (${bill.special_items_note || '-'}): ${
+                    bill.special_items > 0 ? '+' : ''
+                  }${bill.special_items.toLocaleString()} บาท`
                 );
               }
               if (bill.late_fee > 0) {
                 extraLines.push(`• เบี้ยปรับล่าช้า (Late Fee): +${bill.late_fee.toLocaleString()} บาท`);
               }
               if (bill.contribution_deducted > 0) {
-                extraLines.push(`• หักเครดิตสมทบทุนซ่อมตึก (Fund Credit): -${bill.contribution_deducted.toLocaleString()} บาท`);
+                extraLines.push(
+                  `• หักเครดิตสมทบทุนซ่อมตึก (Fund Credit): -${bill.contribution_deducted.toLocaleString()} บาท`
+                );
               }
               if (bill.prepaid_deducted > 0) {
                 extraLines.push(`• หักเงินฝากล่วงหน้า (Prepaid): -${bill.prepaid_deducted.toLocaleString()} บาท`);
@@ -915,9 +941,22 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               }
               extraItems = extraLines.length > 0 ? extraLines.join('\n') + '\n' : '';
               totalDue = bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 });
+              totalDueNum = bill.total_amount;
+              consolidatedTotalAmount += bill.total_amount;
+
               paymentStatus = logData?.is_paid
-                ? `✅ ชำระแล้ว / Paid (${logData.paid_timestamp ? new Date(logData.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' }) : 'เรียบร้อย'})`
+                ? `✅ ชำระแล้ว / Paid (${
+                    logData.paid_timestamp
+                      ? new Date(logData.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
+                      : 'เรียบร้อย'
+                  })`
                 : `⏳ รอชำระ / Unpaid (ครบกำหนดวันที่ / Due: ${dueDay})`;
+
+              multiRoomList.push({
+                roomNo: formatRoomNo(targetRoom.room_no),
+                amount: bill.total_amount,
+                isPaid: !!logData?.is_paid,
+              });
             }
 
             let statement12mText = 'ยังไม่มีประวัติการชำระเงิน / No payment history yet';
@@ -943,46 +982,124 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               }
             }
 
-            const renderSingleTemplate = (template: string) => {
-              return (template || '')
-                .replace(/\{meter_photo\}/g, '')
-                .replace(/ค่าน้ำ\+บำบัด:/g, 'ค่าน้ำประปา:')
-                .replace(/\{condo_name\}/g, condoName)
-                .replace(/\{room_no\}/g, roomNoFormatted)
-                .replace(/\{owner_name\}/g, ownerName)
-                .replace(/\{period\}/g, currentPeriod)
-                .replace(/\{prev_meter\}/g, String(prevMeter))
-                .replace(/\{curr_meter\}/g, String(currMeter))
-                .replace(/\{water_units\}/g, String(waterUnits))
-                .replace(/\{water_amount\}/g, waterOnlyAmt)
-                .replace(/\{wastewater_amount\}/g, wastewaterOnlyAmt)
-                .replace(/\{water_total\}/g, waterTotal)
-                .replace(/\{common_fee\}/g, commonFee)
-                .replace(/\{extra_items\}/g, extraItems)
-                .replace(/\{total_due\}/g, totalDue)
-                .replace(/\{payment_status\}/g, paymentStatus)
-                .replace(/\{due_date\}/g, dueDay)
-                .replace(/\{bank_info\}/g, bankInfoText)
-                .replace(/\{statement_12m\}/g, statement12mText)
-                .replace(/\{fund_summary\}/g, fundSummaryText)
-                .replace(/\{building_finance\}/g, buildingFinanceText)
-                .trim();
-            };
+            roomCalculations.push({
+              targetRoom,
+              roomNoFormatted,
+              ownerName,
+              prevMeter,
+              currMeter,
+              waterUnits,
+              waterOnlyAmt,
+              wastewaterOnlyAmt,
+              waterTotal,
+              commonFee,
+              extraItems,
+              totalDue,
+              totalDueNum,
+              paymentStatus,
+              statement12mText,
+            });
+          }
 
-            const ruleBubblesRaw: string[] =
-              Array.isArray(matchedRule.reply_bubbles) && matchedRule.reply_bubbles.length > 0
-                ? matchedRule.reply_bubbles
-                : [matchedRule.reply_text || ''];
+          const renderSingleTemplate = (template: string, calc: (typeof roomCalculations)[0]) => {
+            return (template || '')
+              .replace(/\{meter_photo\}/g, '')
+              .replace(/ค่าน้ำ\+บำบัด:/g, 'ค่าน้ำประปา:')
+              .replace(/\{condo_name\}/g, condoName)
+              .replace(/\{room_no\}/g, calc.roomNoFormatted)
+              .replace(/\{owner_name\}/g, calc.ownerName)
+              .replace(/\{period\}/g, currentPeriod)
+              .replace(/\{prev_meter\}/g, String(calc.prevMeter))
+              .replace(/\{curr_meter\}/g, String(calc.currMeter))
+              .replace(/\{water_units\}/g, String(calc.waterUnits))
+              .replace(/\{water_amount\}/g, calc.waterOnlyAmt)
+              .replace(/\{wastewater_amount\}/g, calc.wastewaterOnlyAmt)
+              .replace(/\{water_total\}/g, calc.waterTotal)
+              .replace(/\{common_fee\}/g, calc.commonFee)
+              .replace(/\{extra_items\}/g, calc.extraItems)
+              .replace(/\{total_due\}/g, calc.totalDue)
+              .replace(
+                /\{total_all_rooms\}/g,
+                consolidatedTotalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
+              )
+              .replace(
+                /\{consolidated_total\}/g,
+                consolidatedTotalAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })
+              )
+              .replace(/\{payment_status\}/g, calc.paymentStatus)
+              .replace(/\{due_date\}/g, dueDay)
+              .replace(/\{bank_info\}/g, bankInfoText)
+              .replace(/\{statement_12m\}/g, calc.statement12mText)
+              .replace(/\{fund_summary\}/g, fundSummaryText)
+              .replace(/\{building_finance\}/g, buildingFinanceText)
+              .trim();
+          };
 
-            if (isPerRoomMode) {
-              const roomCombined = ruleBubblesRaw.map(renderSingleTemplate).filter(Boolean).join('\n\n');
-              if (roomCombined) renderedTexts.push(roomCombined);
-            } else {
-              for (const b of ruleBubblesRaw) {
-                const rendered = renderSingleTemplate(b);
+          const ruleBubblesRaw: string[] =
+            Array.isArray(matchedRule.reply_bubbles) && matchedRule.reply_bubbles.length > 0
+              ? matchedRule.reply_bubbles
+              : [matchedRule.reply_text || ''];
+
+          const renderedTexts: string[] = [];
+
+          if (!isPerRoomMode) {
+            // General rules (custom_text, system_fund, system_finance)
+            // Send each bubble as its own separate message balloon!
+            for (const b of ruleBubblesRaw) {
+              const rendered = renderSingleTemplate(b, roomCalculations[0]);
+              if (rendered) renderedTexts.push(rendered);
+            }
+          } else if (roomCalculations.length <= 1) {
+            // Single room mode (or not registered yet)
+            // Send each bubble as its own separate message balloon! (No combining with join)
+            for (const b of ruleBubblesRaw) {
+              const rendered = renderSingleTemplate(b, roomCalculations[0]);
+              if (rendered) renderedTexts.push(rendered);
+            }
+          } else {
+            // Multiple linked rooms (e.g. 2 or more rooms)
+            // 1. Render bill details for each room
+            for (const calc of roomCalculations) {
+              if (ruleBubblesRaw.length === 1) {
+                const rendered = renderSingleTemplate(ruleBubblesRaw[0], calc);
                 if (rendered) renderedTexts.push(rendered);
+              } else {
+                // If rule has multiple bubbles, combine per room to avoid exceeding LINE 5-message quota
+                const roomBlock = ruleBubblesRaw
+                  .map((b) => renderSingleTemplate(b, calc))
+                  .filter(Boolean)
+                  .join('\n\n');
+                if (roomBlock) renderedTexts.push(roomBlock);
               }
-              break;
+            }
+
+            // 2. Add Consolidated Multi-Room Summary Bubble for bill queries
+            if (mode === 'system_bill' || matchedRule.keyword.includes('บิล') || matchedRule.keyword.includes('bill')) {
+              const roomBreakdownLines = multiRoomList
+                .map(
+                  (m) =>
+                    `• ห้อง ${m.roomNo}: ${m.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ. (${
+                      m.isPaid ? '✅ ชำระแล้ว' : '⏳ รอชำระ'
+                    })`
+                )
+                .join('\n');
+
+              const multiRoomSummaryText =
+                `📊 สรุปยอดรวมชำระ ${multiRoomList.length} ห้องชุด ประจำรอบ ${currentPeriod}\n` +
+                `${condoName}\n` +
+                `ผู้รับ: ${consolidatedOwnerName}\n` +
+                `━━━━━━━━━━━━━━\n` +
+                roomBreakdownLines +
+                `\n━━━━━━━━━━━━━━\n` +
+                `💰 ยอดรวมทุกห้องที่ต้องชำระ: ${consolidatedTotalAmount.toLocaleString('th-TH', {
+                  minimumFractionDigits: 2,
+                })} บาท\n` +
+                `📅 กำหนดชำระภายในวันที่: ${dueDay}\n\n` +
+                `🏦 ช่องทางโอนชำระ:\n` +
+                `${bankInfoText}\n\n` +
+                `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยนะคะ/ครับ 🙏`;
+
+              renderedTexts.push(multiRoomSummaryText);
             }
           }
 
@@ -1024,19 +1141,31 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             }
           }
 
-          // Append text messages (support multiple balloons up to LINE's 5-message limit)
-          if (!isPerRoomMode && Array.isArray(matchedRule.reply_bubbles) && matchedRule.reply_bubbles.length > 1) {
+          // Append text messages as separate message balloons up to LINE's 5-message limit
+          // If total messages (images + rendered text balloons) <= 5:
+          // Send each text balloon as its own separate message object!
+          if (replyBubbles.length + renderedTexts.length <= 5) {
             for (const txt of renderedTexts) {
-              if (replyBubbles.length < 5 && txt) {
+              if (txt && txt.trim()) {
                 replyBubbles.push({ type: 'text', text: txt });
               }
             }
           } else {
-            const finalReply = renderedTexts.join('\n\n━━━━━━━━━━━━━━\n\n');
-            while (replyBubbles.length > 4) {
-              replyBubbles.pop();
+            // Need to compact to fit within LINE's strict 5-message quota
+            const availableSlots = Math.max(1, 5 - replyBubbles.length);
+            if (availableSlots === 1) {
+              const compacted = renderedTexts.filter(Boolean).join('\n\n━━━━━━━━━━━━━━\n\n');
+              replyBubbles.push({ type: 'text', text: compacted || 'ข้อมูลใบแจ้งหนี้ / ใบเสร็จ' });
+            } else {
+              // Reserve the last slot for the summary bubble, compact the earlier bubbles
+              const lastItem = renderedTexts[renderedTexts.length - 1];
+              const headItems = renderedTexts.slice(0, renderedTexts.length - 1);
+              const compactedHead = headItems.filter(Boolean).join('\n\n━━━━━━━━━━━━━━\n\n');
+              replyBubbles.push({ type: 'text', text: compactedHead });
+              if (lastItem && lastItem.trim()) {
+                replyBubbles.push({ type: 'text', text: lastItem });
+              }
             }
-            replyBubbles.push({ type: 'text', text: finalReply || 'ข้อมูลใบแจ้งหนี้ / ใบเสร็จ' });
           }
 
           await replyLineMessage(replyToken, replyBubbles, accessToken);

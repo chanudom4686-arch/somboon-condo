@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 674 Management System
-// Version 2.14 - 674/XXX prefix & Multi-bubble keyword auto-reply support
+// Version 2.15 - Receipt Footer Config, Print LINE QR, and Multi-bubble Fixes
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -142,6 +142,10 @@ export default function AdminCondoApp() {
   const [dueDay, setDueDay] = useState('5');
   const [lineSecret, setLineSecret] = useState('');
   const [lineAccessToken, setLineAccessToken] = useState('');
+  const [receiptFooterText, setReceiptFooterText] = useState('ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา');
+  const [showPrintLineQr, setShowPrintLineQr] = useState(true);
+  const [lineQrImageUrl, setLineQrImageUrl] = useState('');
+  const [isUploadingLineQr, setIsUploadingLineQr] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
   const fetchData = async (overridePeriod?: string) => {
@@ -175,6 +179,9 @@ export default function AdminCondoApp() {
         setDueDay(configMap.BILL_DUE_DAY || '5');
         setLineSecret(configMap.LINE_CHANNEL_SECRET || '');
         setLineAccessToken(configMap.LINE_CHANNEL_ACCESS_TOKEN || '');
+        setReceiptFooterText(configMap.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา');
+        setShowPrintLineQr(configMap.SHOW_PRINT_LINE_QR !== 'false');
+        setLineQrImageUrl(configMap.LINE_QR_IMAGE_URL || '');
       }
 
       const { data: roomsData } = await supabase
@@ -919,6 +926,27 @@ export default function AdminCondoApp() {
     }
   };
 
+  const handleUploadLineQrImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingLineQr(true);
+      const ext = file.name.split('.').pop() || 'png';
+      const path = `line-qr/line_qr_${Date.now()}.${ext}`;
+      const { data, error } = await supabase.storage.from('slips').upload(path, file, {
+        cacheControl: '3600',
+        upsert: true,
+      });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage.from('slips').getPublicUrl(data.path);
+      setLineQrImageUrl(urlData.publicUrl);
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการอัปโหลดรูป: ' + err.message);
+    } finally {
+      setIsUploadingLineQr(false);
+    }
+  };
+
   const handleSaveSettings = async () => {
     try {
       const updates = [
@@ -934,6 +962,9 @@ export default function AdminCondoApp() {
         { key: 'CURRENT_BILLING_PERIOD', value: staffActivePeriod },
         { key: 'LINE_CHANNEL_SECRET', value: lineSecret },
         { key: 'LINE_CHANNEL_ACCESS_TOKEN', value: lineAccessToken },
+        { key: 'RECEIPT_FOOTER_TEXT', value: receiptFooterText },
+        { key: 'SHOW_PRINT_LINE_QR', value: showPrintLineQr ? 'true' : 'false' },
+        { key: 'LINE_QR_IMAGE_URL', value: lineQrImageUrl },
       ];
 
       for (const item of updates) {
@@ -956,6 +987,9 @@ export default function AdminCondoApp() {
         CURRENT_BILLING_PERIOD: staffActivePeriod,
         LINE_CHANNEL_SECRET: lineSecret,
         LINE_CHANNEL_ACCESS_TOKEN: lineAccessToken,
+        RECEIPT_FOOTER_TEXT: receiptFooterText,
+        SHOW_PRINT_LINE_QR: showPrintLineQr ? 'true' : 'false',
+        LINE_QR_IMAGE_URL: lineQrImageUrl,
       }));
 
       setSettingsSaved(true);
@@ -3331,7 +3365,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.14)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.15)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
@@ -3505,6 +3539,116 @@ export default function AdminCondoApp() {
                     <p className="text-blue-700 mt-1">
                       ย้ายไปรวมอยู่ที่ <b>แท็บ LINE OA &gt; ส่วนที่ 3: จัดการข้อความในระบบ (Studio)</b> เรียบร้อยแล้ว พร้อมระบบ Drag &amp; Drop และจำลองหน้าจอมือถือเสมือนจริง
                     </p>
+                  </div>
+                </div>
+
+                {/* SETTING: RECEIPT & PRINT BILLS */}
+                <div className="border-t pt-3 space-y-3">
+                  <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                    <span>🧾</span>
+                    <span>การตั้งค่าใบเสร็จรับเงิน &amp; ใบแจ้งหนี้ตอนพิมพ์ (A4)</span>
+                  </h3>
+
+                  {/* 1. Receipt Footer Note */}
+                  <div>
+                    <label className="text-slate-700 font-bold block mb-1">
+                      ข้อความท้ายใบเสร็จรับเงิน (Receipt Footer Note)
+                    </label>
+                    <input
+                      type="text"
+                      value={receiptFooterText}
+                      onChange={(e) => setReceiptFooterText(e.target.value)}
+                      placeholder="ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา"
+                      className="w-full border rounded-lg p-2.5 font-sans text-xs bg-white text-slate-800 focus:ring-1 focus:ring-blue-500"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      ข้อความนี้จะแสดงอยู่ด้านล่างสุดของใบเสร็จรับเงินทุกใบ ทั้งในหน้ารับชำระเงิน, ส่งใบเสร็จทาง LINE และตอนพิมพ์ใบเสร็จ
+                    </p>
+                  </div>
+
+                  {/* 2. Print LINE QR Code */}
+                  <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-slate-800 font-bold text-xs flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={showPrintLineQr}
+                            onChange={(e) => setShowPrintLineQr(e.target.checked)}
+                            className="w-4 h-4 text-blue-600 rounded"
+                          />
+                          <span>แสดง QR Code LINE OA ในใบแจ้งหนี้ / บิลตอนพิมพ์ (4 บิลต่อหน้า A4)</span>
+                        </label>
+                        <p className="text-[11px] text-slate-500 ml-6">
+                          พิมพ์ QR Code ไลน์ควบคู่กับ PromptPay QR เพื่อให้ลูกบ้านสแกนแอดไลน์ส่งสลิปได้สะดวก
+                        </p>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          showPrintLineQr ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {showPrintLineQr ? 'เปิดใช้งาน' : 'ปิดอยู่'}
+                      </span>
+                    </div>
+
+                    {showPrintLineQr && (
+                      <div className="pt-2 border-t border-slate-200 space-y-2">
+                        <label className="text-slate-700 font-bold block text-xs">
+                          รูปภาพ QR Code LINE OA สำหรับพิมพ์ลงบิล
+                        </label>
+                        <div className="flex flex-wrap items-center gap-3">
+                          {lineQrImageUrl ? (
+                            <div className="relative border-2 border-slate-300 rounded-lg p-1 bg-white shrink-0">
+                              <img
+                                src={lineQrImageUrl}
+                                alt="LINE OA QR Code"
+                                className="w-20 h-20 object-contain"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setLineQrImageUrl('')}
+                                className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shadow"
+                                title="ลบรูป QR Code"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="w-20 h-20 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 text-[10px] bg-white shrink-0">
+                              <span>📱 ไม่มีรูป</span>
+                              <span>QR Code</span>
+                            </div>
+                          )}
+
+                          <div className="flex-1 space-y-2 min-w-[200px]">
+                            <div className="flex items-center gap-2">
+                              <label className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer shadow-xs flex items-center gap-1.5 transition">
+                                <span>📁</span>
+                                <span>{isUploadingLineQr ? 'กำลังอัปโหลด...' : 'เลือกรูป QR Code จากเครื่อง'}</span>
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  disabled={isUploadingLineQr}
+                                  onChange={handleUploadLineQrImage}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
+                            <input
+                              type="text"
+                              value={lineQrImageUrl}
+                              onChange={(e) => setLineQrImageUrl(e.target.value)}
+                              placeholder="หรือวาง URL รูปภาพ QR Code..."
+                              className="w-full border rounded-lg p-2 font-mono text-[11px] bg-white"
+                            />
+                            <p className="text-[10px] text-slate-500">
+                              แนะนำ: ใช้ไฟล์ <b>M_gainfriends_2dbarcodes_BW.png</b> หรือ <b>S_gainfriends_2dbarcodes_BW.png</b> ที่เป็นภาพขาว-ดำความคมชัดสูง
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
