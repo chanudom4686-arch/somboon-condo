@@ -2,7 +2,7 @@
 // Version 1.6 - Downscales resolution to 720px with Top Header Bar and exports standard JPEG (.jpg) for 100% LINE Image Bubble compatibility
 
 export interface WatermarkOptions {
-  roomNo: string; // e.g. "645/087"
+  roomNo: string; // e.g. "674/087"
   period: string; // e.g. "2026-11"
   prevMeter: number;
   currMeter: number;

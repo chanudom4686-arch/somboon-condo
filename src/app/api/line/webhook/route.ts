@@ -77,14 +77,14 @@ function extractCleanPhones(phoneStr?: string | null): string[] {
     .filter((p: string) => p.length >= 4);
 }
 
-// Parse a single room token (e.g. "001", "1", "645/001", "64-65", "064-065")
+// Parse a single room token (e.g. "001", "1", "674/001", "64-65", "064-065")
 function parseSingleRoomToken(rawToken: string): string | null {
   const trimmed = rawToken.trim();
   if (!trimmed) return null;
   const withoutPrefix = trimmed
     .replace(/^ห้อง\s*/i, '')
     .replace(/^room\s*/i, '')
-    .replace(/^645\//, '')
+    .replace(/^(674|645)\//, '')
     .trim();
 
   // Check paired room patterns (e.g., 64-65, 064-065, 144-145, 164-165, 186-187)
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
 
     const channelSecret = config.LINE_CHANNEL_SECRET || process.env.LINE_CHANNEL_SECRET || '';
     const accessToken = config.LINE_CHANNEL_ACCESS_TOKEN || process.env.LINE_CHANNEL_ACCESS_TOKEN || '';
-    const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)';
+    const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (674)';
     const currentPeriod = config.CURRENT_BILLING_PERIOD || '2026-11';
     const dueDay = config.BILL_DUE_DAY || '5';
 
@@ -943,37 +943,49 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
               }
             }
 
-            const singleText = (matchedRule.reply_text || '')
-              .replace(/\{meter_photo\}/g, '')
-              .replace(/ค่าน้ำ\+บำบัด:/g, 'ค่าน้ำประปา:')
-              .replace(/\{condo_name\}/g, condoName)
-              .replace(/\{room_no\}/g, roomNoFormatted)
-              .replace(/\{owner_name\}/g, ownerName)
-              .replace(/\{period\}/g, currentPeriod)
-              .replace(/\{prev_meter\}/g, String(prevMeter))
-              .replace(/\{curr_meter\}/g, String(currMeter))
-              .replace(/\{water_units\}/g, String(waterUnits))
-              .replace(/\{water_amount\}/g, waterOnlyAmt)
-              .replace(/\{wastewater_amount\}/g, wastewaterOnlyAmt)
-              .replace(/\{water_total\}/g, waterTotal)
-              .replace(/\{common_fee\}/g, commonFee)
-              .replace(/\{extra_items\}/g, extraItems)
-              .replace(/\{total_due\}/g, totalDue)
-              .replace(/\{payment_status\}/g, paymentStatus)
-              .replace(/\{due_date\}/g, dueDay)
-              .replace(/\{bank_info\}/g, bankInfoText)
-              .replace(/\{statement_12m\}/g, statement12mText)
-              .replace(/\{fund_summary\}/g, fundSummaryText)
-              .replace(/\{building_finance\}/g, buildingFinanceText)
-              .trim();
+            const renderSingleTemplate = (template: string) => {
+              return (template || '')
+                .replace(/\{meter_photo\}/g, '')
+                .replace(/ค่าน้ำ\+บำบัด:/g, 'ค่าน้ำประปา:')
+                .replace(/\{condo_name\}/g, condoName)
+                .replace(/\{room_no\}/g, roomNoFormatted)
+                .replace(/\{owner_name\}/g, ownerName)
+                .replace(/\{period\}/g, currentPeriod)
+                .replace(/\{prev_meter\}/g, String(prevMeter))
+                .replace(/\{curr_meter\}/g, String(currMeter))
+                .replace(/\{water_units\}/g, String(waterUnits))
+                .replace(/\{water_amount\}/g, waterOnlyAmt)
+                .replace(/\{wastewater_amount\}/g, wastewaterOnlyAmt)
+                .replace(/\{water_total\}/g, waterTotal)
+                .replace(/\{common_fee\}/g, commonFee)
+                .replace(/\{extra_items\}/g, extraItems)
+                .replace(/\{total_due\}/g, totalDue)
+                .replace(/\{payment_status\}/g, paymentStatus)
+                .replace(/\{due_date\}/g, dueDay)
+                .replace(/\{bank_info\}/g, bankInfoText)
+                .replace(/\{statement_12m\}/g, statement12mText)
+                .replace(/\{fund_summary\}/g, fundSummaryText)
+                .replace(/\{building_finance\}/g, buildingFinanceText)
+                .trim();
+            };
 
-            renderedTexts.push(singleText);
+            const ruleBubblesRaw: string[] =
+              Array.isArray(matchedRule.reply_bubbles) && matchedRule.reply_bubbles.length > 0
+                ? matchedRule.reply_bubbles
+                : [matchedRule.reply_text || ''];
 
-            // If this rule is a general/building rule (not per-room), only render once
-            if (!isPerRoomMode) break;
+            if (isPerRoomMode) {
+              const roomCombined = ruleBubblesRaw.map(renderSingleTemplate).filter(Boolean).join('\n\n');
+              if (roomCombined) renderedTexts.push(roomCombined);
+            } else {
+              for (const b of ruleBubblesRaw) {
+                const rendered = renderSingleTemplate(b);
+                if (rendered) renderedTexts.push(rendered);
+              }
+              break;
+            }
           }
 
-          const finalReply = renderedTexts.join('\n\n━━━━━━━━━━━━━━\n\n');
           const replyBubbles: any[] = [];
 
           // 1. Meter dial photo(s) are attached ONLY if user explicitly asked for meter photo
@@ -1012,12 +1024,20 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             }
           }
 
-          // Enforce LINE API limit of max 5 messages per replyToken (leave 1 slot for text)
-          while (replyBubbles.length > 4) {
-            replyBubbles.pop();
+          // Append text messages (support multiple balloons up to LINE's 5-message limit)
+          if (!isPerRoomMode && Array.isArray(matchedRule.reply_bubbles) && matchedRule.reply_bubbles.length > 1) {
+            for (const txt of renderedTexts) {
+              if (replyBubbles.length < 5 && txt) {
+                replyBubbles.push({ type: 'text', text: txt });
+              }
+            }
+          } else {
+            const finalReply = renderedTexts.join('\n\n━━━━━━━━━━━━━━\n\n');
+            while (replyBubbles.length > 4) {
+              replyBubbles.pop();
+            }
+            replyBubbles.push({ type: 'text', text: finalReply || 'ข้อมูลใบแจ้งหนี้ / ใบเสร็จ' });
           }
-
-          replyBubbles.push({ type: 'text', text: finalReply || 'ข้อมูลใบแจ้งหนี้ / ใบเสร็จ' });
 
           await replyLineMessage(replyToken, replyBubbles, accessToken);
           continue;

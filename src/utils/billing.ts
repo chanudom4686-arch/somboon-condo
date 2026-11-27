@@ -137,32 +137,32 @@ export const PAIRED_ROOM_LOOKUP: Record<string, string> = {
 };
 
 export function resolveRoomNo(inputRoomNo: string): string {
-  const clean = inputRoomNo.replace('645/', '').trim();
+  const clean = inputRoomNo.replace(/^674\//, '').replace(/^645\//, '').replace('674/', '').replace('645/', '').trim();
   if (PAIRED_ROOM_LOOKUP[clean]) return PAIRED_ROOM_LOOKUP[clean];
   return clean.padStart(3, '0');
 }
 
 export function formatRoomNo(roomNo: string): string {
-  const clean = roomNo.replace('645/', '').trim();
+  const clean = roomNo.replace(/^674\//, '').replace(/^645\//, '').replace('674/', '').replace('645/', '').trim();
   if (clean === '064-065' || clean === '64-65') {
-    return '645/64-65';
+    return '674/64-65';
   }
   if (clean.includes('-')) {
-    return `645/${clean}`;
+    return `674/${clean}`;
   }
   const padded = clean.padStart(3, '0');
-  return `645/${padded}`;
+  return `674/${padded}`;
 }
 
 export function getShortRoomNo(roomNo: string): string {
-  const clean = roomNo.replace('645/', '').trim();
+  const clean = roomNo.replace(/^674\//, '').replace(/^645\//, '').replace('674/', '').replace('645/', '').trim();
   if (clean.includes('-')) return clean;
   return clean.padStart(3, '0');
 }
 
 // Get primary 3-digit prefix for LINE 6-digit registration code (e.g. "064-065" -> "064")
 export function getLineRoomPrefix(roomNo: string): string {
-  const clean = roomNo.replace('645/', '').trim();
+  const clean = roomNo.replace(/^674\//, '').replace(/^645\//, '').replace('674/', '').replace('645/', '').trim();
   if (clean.includes('-')) {
     const firstPart = clean.split('-')[0].trim();
     return firstPart.padStart(3, '0');

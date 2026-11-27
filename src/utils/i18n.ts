@@ -3,7 +3,7 @@
 
 export const i18n = {
   th: {
-    condoName: 'สมบูรณ์คอนโดทาวน์ (645)',
+    condoName: 'สมบูรณ์คอนโดทาวน์ (674)',
     invoiceTitle: 'ใบแจ้งหนี้ / INVOICE',
     receiptTitle: 'ใบเสร็จรับเงิน / RECEIPT',
     room: 'ห้อง',
@@ -35,7 +35,7 @@ export const i18n = {
     unit: 'หน่วย',
   },
   en: {
-    condoName: 'Somboon Condo Town (645)',
+    condoName: 'Somboon Condo Town (674)',
     invoiceTitle: 'INVOICE / ใบแจ้งหนี้',
     receiptTitle: 'RECEIPT / ใบเสร็จรับเงิน',
     room: 'Room',

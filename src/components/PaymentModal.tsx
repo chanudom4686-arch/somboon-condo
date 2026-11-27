@@ -309,7 +309,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               {/* Receipt Header */}
               <div className="text-center border-b border-black pb-2">
                 <div className="font-extrabold text-sm text-black">
-                  {config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)'}
+                  {config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (674)'}
                 </div>
                 <div className="text-[11px] font-bold text-black mt-0.5">
                   ใบเสร็จรับเงิน / RECEIPT
@@ -403,7 +403,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
               {/* Receipt Footer */}
               <div className="text-[9.5px] text-center text-neutral-500 pt-1 border-t border-neutral-300">
-                ออกโดย: ระบบบริหารจัดการคอนโดมิเนียม • สมบูรณ์คอนโดทาวน์ (645) / Somboon Condo Town
+                ออกโดย: ระบบบริหารจัดการคอนโดมิเนียม • สมบูรณ์คอนโดทาวน์ (674) / Somboon Condo Town
               </div>
             </div>
 

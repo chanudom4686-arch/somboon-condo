@@ -1,5 +1,5 @@
-// Types for Condo 645 Management System
-// Version 1.8 - Supports Paired Rooms (64-65, 144-145, 164-165, 186-187), Overdue & Late Payment Tracking
+// Types for Condo 674 Management System
+// Version 1.9 - Somboon Condo Town 674 & Multiple Bubbles Support
 
 export type RoomType = 'ห้องเล็ก' | 'ห้องใหญ่' | 'ห้องคู่ (600)' | 'ห้องคู่ (1000)' | 'ห้องคู่ (800)' | 'small' | 'large';
 export type RoomStatus = 'ปกติ' | 'ติดต่อไม่ได้' | 'ธนาคารยึด' | 'รอขาย' | 'normal' | 'uncontactable' | 'bank_seized' | 'pending_sale';
@@ -66,6 +66,7 @@ export interface LineAutoReplyRule {
   match_type: 'exact' | 'contains' | string;
   reply_mode: 'custom_text' | 'system_bill' | 'system_receipt' | 'system_statement' | 'system_fund' | 'system_finance' | string;
   reply_text: string;
+  reply_bubbles?: string[] | null;
   description?: string | null;
   is_active: boolean;
   sort_order: number;
@@ -113,7 +114,7 @@ export interface CondoConfig {
 
 export interface BillCalculationResult {
   room_no: string;
-  formatted_room: string; // e.g. "645/001" or "645/64-65"
+  formatted_room: string; // e.g. "674/001" or "674/64-65"
   period: string;
   prev_meter: number;
   curr_meter: number;

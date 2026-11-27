@@ -1,7 +1,7 @@
 'use client';
 
 // Staff Meter Reading App (Dedicated Route: /meter)
-// Version 1.8 - Supports Paired Rooms (645/64-65, 144-145, 164-165, 186-187) & Search-Only Filter (Room range pills removed)
+// Version 1.9 - Supports Paired Rooms (674/64-65, 144-145, 164-165, 186-187) & Search-Only Filter (Room range pills removed)
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -16,7 +16,7 @@ export default function StaffMeterReadingPage() {
   const [meterLogs, setMeterLogs] = useState<MeterLog[]>([]);
   const [config, setConfig] = useState<Partial<CondoConfig>>({});
   const [period, setPeriod] = useState<string>('2026-11');
-  const [condoName, setCondoName] = useState<string>('สมบูรณ์คอนโดทาวน์ (645)');
+  const [condoName, setCondoName] = useState<string>('สมบูรณ์คอนโดทาวน์ (674)');
   const [loading, setLoading] = useState(true);
 
   // Search & Status Filter (Room Range Buttons Removed)

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     const activePeriod = period || config.CURRENT_BILLING_PERIOD || '2026-11';
-    const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)';
+    const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (674)';
 
     // ==========================================
     // MODE 1: Push Receipt Image to Resident

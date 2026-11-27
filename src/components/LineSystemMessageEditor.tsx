@@ -1,7 +1,7 @@
 'use client';
 
 // LINE OA System Messages Editor with Multi-Bubble, Image & PDF Document Support
-// Version 2.9 - Somboon Condo Town 645
+// Version 2.10 - Somboon Condo Town 674
 
 import React, { useState, useRef } from 'react';
 import { CondoConfig } from '@/types/condo';
@@ -20,7 +20,7 @@ interface LineSystemMessageEditorProps {
 
 export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = ({ config, onSaved }) => {
   const supabase = createClient();
-  const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)';
+  const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (674)';
 
   const templateKeys = Object.keys(DEFAULT_LINE_TEMPLATES);
 
@@ -625,7 +625,7 @@ export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = (
                   <div className="flex items-center gap-2">
                     <span className="text-sm">‹</span>
                     <div className="w-7 h-7 rounded-full bg-emerald-600 flex items-center justify-center font-bold text-white text-[11px] shadow">
-                      645
+                      674
                     </div>
                     <div>
                       <div className="font-bold text-[11px] leading-tight text-white line-clamp-1">{condoName}</div>
@@ -653,7 +653,7 @@ export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = (
                         // Replace tags with sample mock values
                         const rendered = (b.text || '')
                           .replace(/\{condo_name\}/g, condoName)
-                          .replace(/\{room_no\}/g, '645/64-65')
+                          .replace(/\{room_no\}/g, '674/64-65')
                           .replace(/\{owner_name\}/g, 'สมศักดิ์ ชัยชนะ')
                           .replace(/\{masked_phone\}/g, '089-xxx-6273')
                           .replace(/\{admin_hours\}/g, '12.00 - 24.00 น.');

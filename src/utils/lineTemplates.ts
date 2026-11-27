@@ -1,5 +1,5 @@
 // Helper utilities for LINE OA System Messages (Multi-bubble, Image, and PDF support)
-// Version 2.10 - Somboon Condo Town 645
+// Version 2.11 - Somboon Condo Town 674
 
 export type LineMessageBubbleType = 'text' | 'image' | 'pdf';
 
@@ -66,7 +66,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
       },
     ],
     allowedTags: [
-      { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '674/64-65' },
       { tag: '{owner_name}', label: 'ชื่อเจ้าของ', desc: 'คุณสมศักดิ์' },
       { tag: '{masked_phone}', label: 'เบอร์โทรซ่อน 4 ตัวท้าย', desc: '081-403-XXXX' },
       { tag: '{phone}', label: 'เบอร์โทรศัพท์', desc: '081-403-XXXX' },
@@ -85,7 +85,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
       },
     ],
     allowedTags: [
-      { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '674/64-65' },
       { tag: '{owner_name}', label: 'ชื่อเจ้าของ', desc: 'คุณสมศักดิ์' },
       { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
     ],
@@ -102,7 +102,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
       },
     ],
     allowedTags: [
-      { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '674/64-65' },
       { tag: '{masked_phone}', label: 'เบอร์ซ่อนท้าย', desc: '089-xxx-6273' },
     ],
   },
@@ -135,7 +135,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
       },
     ],
     allowedTags: [
-      { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '674/64-65' },
       { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
       { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
     ],
@@ -168,7 +168,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
       },
     ],
     allowedTags: [
-      { tag: '{room_no}', label: 'เลขห้อง', desc: '645/64-65' },
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '674/64-65' },
       { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
       { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
     ],

@@ -1,7 +1,7 @@
 'use client';
 
-// Main Application Page for Condo 645 Management System
-// Version 2.8 - Modular LINE OA 3-Tier Suite (Room Registration, Bot Keywords, System Message Studio with Drag & Drop & Live Phone Simulator)
+// Main Application Page for Condo 674 Management System
+// Version 2.14 - 674/XXX prefix & Multi-bubble keyword auto-reply support
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -126,6 +126,7 @@ export default function AdminCondoApp() {
   const [lineSubTab, setLineSubTab] = useState<'rooms' | 'keywords' | 'system_messages'>('rooms');
   const [lineRoomSearch, setLineRoomSearch] = useState('');
   const [editingRule, setEditingRule] = useState<Partial<LineAutoReplyRule> | null>(null);
+  const [activeBubbleIndex, setActiveBubbleIndex] = useState<number>(0);
   const [testLineCode, setTestLineCode] = useState('');
   const [testLineResult, setTestLineResult] = useState<{ match: boolean; message: string } | null>(null);
 
@@ -796,8 +797,14 @@ export default function AdminCondoApp() {
   };
 
   const handleSaveLineRule = async () => {
-    if (!editingRule || !editingRule.keyword?.trim() || !editingRule.reply_text?.trim()) {
-      alert('กรุณากรอกคีย์เวิร์ดและข้อความตอบกลับ');
+    const rawBubbles = Array.isArray(editingRule?.reply_bubbles) && editingRule.reply_bubbles.length > 0
+      ? editingRule.reply_bubbles.map((b) => b.trim()).filter(Boolean)
+      : (editingRule?.reply_text ? [editingRule.reply_text.trim()] : []);
+
+    const primaryText = rawBubbles[0] || editingRule?.reply_text?.trim() || '';
+
+    if (!editingRule || !editingRule.keyword?.trim() || !primaryText) {
+      alert('กรุณากรอกคีย์เวิร์ดและข้อความตอบกลับอย่างน้อย 1 กล่องข้อความ');
       return;
     }
 
@@ -809,7 +816,8 @@ export default function AdminCondoApp() {
             keyword: editingRule.keyword.trim(),
             match_type: editingRule.match_type || 'contains',
             reply_mode: editingRule.reply_mode || 'custom_text',
-            reply_text: editingRule.reply_text,
+            reply_text: primaryText,
+            reply_bubbles: rawBubbles.length > 0 ? rawBubbles : [primaryText],
             description: editingRule.description || '',
             is_active: editingRule.is_active ?? true,
             sort_order: Number(editingRule.sort_order) || 10,
@@ -822,7 +830,8 @@ export default function AdminCondoApp() {
           keyword: editingRule.keyword.trim(),
           match_type: editingRule.match_type || 'contains',
           reply_mode: editingRule.reply_mode || 'custom_text',
-          reply_text: editingRule.reply_text,
+          reply_text: primaryText,
+          reply_bubbles: rawBubbles.length > 0 ? rawBubbles : [primaryText],
           description: editingRule.description || '',
           is_active: true,
           sort_order: lineRules.length + 1,
@@ -1024,13 +1033,13 @@ export default function AdminCondoApp() {
         <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-sky-400 flex items-center justify-center font-bold text-white shadow">
-              645
+              674
             </div>
             <div>
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.10
+                  ระบบบริหารนิติบุคคล v2.14
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -1526,7 +1535,7 @@ export default function AdminCondoApp() {
                       ระบบออกใบแจ้งหนี้ (บิล) / ปรับปรุงรายการ / ส่งบิล LINE (รอบบิล {period})
                     </h2>
                     <p className="text-xs text-slate-500">
-                      แยกแสดงค่าน้ำประปา (35 บ./หน่วย) และค่าบำบัดน้ำเสีย (5 บ./หน่วย) • รองรับห้องคู่ 645/64-65, 144-145, 164-165, 186-187
+                      แยกแสดงค่าน้ำประปา (35 บ./หน่วย) และค่าบำบัดน้ำเสีย (5 บ./หน่วย) • รองรับห้องคู่ 674/64-65, 144-145, 164-165, 186-187
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -2208,7 +2217,7 @@ export default function AdminCondoApp() {
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap gap-4 justify-between items-center">
                   <div>
                     <h2 className="font-bold text-slate-800 text-base">
-                      ทะเบียนห้องชุด (รวมห้องคู่ 645/64-65, 144-145, 164-165, 186-187) & กระเป๋าเงินสมทบทุน
+                      ทะเบียนห้องชุด (รวมห้องคู่ 674/64-65, 144-145, 164-165, 186-187) & กระเป๋าเงินสมทบทุน
                     </h2>
                     <p className="text-xs text-slate-500">
                       กดปุ่ม &quot;แก้ไข / เครดิต&quot; เพื่อตั้งค่าส่วนกลางห้องคู่ (600 บาท หรือ 1,000 บาท), ชื่อ-เบอร์โทร, และเครดิตสมทบทุน
@@ -2928,17 +2937,19 @@ export default function AdminCondoApp() {
                     </div>
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
                         setEditingRule({
                           keyword: '',
                           match_type: 'contains',
                           reply_mode: 'custom_text',
                           reply_text: '',
+                          reply_bubbles: [''],
                           description: '',
                           is_active: true,
                           sort_order: lineRules.length + 1,
-                        })
-                      }
+                        });
+                        setActiveBubbleIndex(0);
+                      }}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow"
                     >
                       ＋ เพิ่มคีย์เวิร์ดตอบกลับใหม่
@@ -2956,7 +2967,7 @@ export default function AdminCondoApp() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 pt-1">
                       {[
-                        { tag: '{room_no}', desc: 'เลขห้องของลูกบ้าน (เช่น 645/64-65)' },
+                        { tag: '{room_no}', desc: 'เลขห้องของลูกบ้าน (เช่น 674/64-65)' },
                         { tag: '{owner_name}', desc: 'ชื่อเจ้าของห้อง / ผู้เช่า' },
                         { tag: '{period}', desc: 'รอบบิลปัจจุบัน (เช่น 2026-11)' },
                         { tag: '{prev_meter}', desc: 'เลขมิเตอร์น้ำครั้งก่อน' },
@@ -2980,16 +2991,23 @@ export default function AdminCondoApp() {
                           type="button"
                           onClick={() => {
                             if (editingRule) {
+                              const currentBubbles = [
+                                ...(editingRule.reply_bubbles || [editingRule.reply_text || '']),
+                              ];
+                              const targetIdx =
+                                activeBubbleIndex < currentBubbles.length ? activeBubbleIndex : 0;
+                              currentBubbles[targetIdx] = `${currentBubbles[targetIdx] || ''}${item.tag}`;
                               setEditingRule((prev) => ({
                                 ...prev,
-                                reply_text: `${prev?.reply_text || ''}${item.tag}`,
+                                reply_bubbles: currentBubbles,
+                                reply_text: currentBubbles[0] || '',
                               }));
                             } else {
                               navigator.clipboard?.writeText(item.tag);
                             }
                           }}
                           className="flex items-center justify-between gap-2 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 px-2.5 py-1.5 rounded-lg text-left transition"
-                          title="คลิกเพื่อแทรกตัวแปรนี้"
+                          title="คลิกเพื่อแทรกตัวแปรนี้ลงในกล่องข้อความที่เลือก"
                         >
                           <span className="font-mono font-bold text-blue-700 text-[11px] shrink-0">
                             {item.tag}
@@ -3061,20 +3079,99 @@ export default function AdminCondoApp() {
                         </div>
                       </div>
 
-                      <div>
-                        <label className="font-bold text-slate-700 block mb-1">
-                          ข้อความที่จะให้เว็บตอบกลับไปที่ LINE
-                        </label>
-                        <textarea
-                          rows={5}
-                          value={editingRule.reply_text || ''}
-                          onChange={(e) =>
-                            setEditingRule((prev) => ({ ...prev, reply_text: e.target.value }))
-                          }
-                          placeholder="พิมพ์ข้อความตอบกลับ สามารถคลิกตัวแปรด้านบนเพื่อแทรกได้..."
-                          className="w-full border rounded-lg p-2.5 bg-white font-mono text-xs"
-                        />
-                      </div>
+                      {(() => {
+                        const raw = editingRule.reply_bubbles;
+                        const bubbles: string[] = Array.isArray(raw) && raw.length > 0
+                          ? raw
+                          : [editingRule.reply_text || ''];
+                        return (
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <label className="font-bold text-slate-700">
+                                ข้อความที่จะให้เว็บตอบกลับไปที่ LINE ({bubbles.length}/5 กล่องข้อความ)
+                              </label>
+                              {bubbles.length < 5 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = [...bubbles, ''];
+                                    setEditingRule((prev) => ({
+                                      ...prev,
+                                      reply_bubbles: updated,
+                                      reply_text: updated[0] || '',
+                                    }));
+                                    setActiveBubbleIndex(updated.length - 1);
+                                  }}
+                                  className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold border border-blue-200 flex items-center gap-1 transition-colors"
+                                >
+                                  <span>＋</span> เพิ่มกล่องข้อความ
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="space-y-3">
+                              {bubbles.map((bubbleText, idx) => (
+                                <div
+                                  key={idx}
+                                  className={`border rounded-xl p-2.5 transition-all ${
+                                    activeBubbleIndex === idx
+                                      ? 'border-blue-500 bg-white ring-2 ring-blue-100 shadow-sm'
+                                      : 'border-slate-200 bg-slate-50/70'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                                      <span>💬 กล่องข้อความที่ {idx + 1}</span>
+                                      {activeBubbleIndex === idx && (
+                                        <span className="text-[10px] text-blue-700 font-semibold bg-blue-100 px-1.5 py-0.5 rounded">
+                                          เลือกอยู่ (คลิกตัวแปรจะแทรกลงกล่องนี้)
+                                        </span>
+                                      )}
+                                    </span>
+                                    {bubbles.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const updated = bubbles.filter((_, i) => i !== idx);
+                                          const nextBubbles = updated.length > 0 ? updated : [''];
+                                          setEditingRule((prev) => ({
+                                            ...prev,
+                                            reply_bubbles: nextBubbles,
+                                            reply_text: nextBubbles[0] || '',
+                                          }));
+                                          setActiveBubbleIndex((curr) =>
+                                            Math.max(0, curr >= nextBubbles.length ? nextBubbles.length - 1 : curr)
+                                          );
+                                        }}
+                                        className="text-[11px] text-red-500 hover:text-red-700 font-medium px-2 py-0.5 rounded hover:bg-red-50"
+                                        title="ลบกล่องข้อความนี้"
+                                      >
+                                        🗑️ ลบกล่องนี้
+                                      </button>
+                                    )}
+                                  </div>
+                                  <textarea
+                                    rows={Math.max(3, Math.min(6, (bubbleText || '').split('\n').length + 1))}
+                                    value={bubbleText || ''}
+                                    onFocus={() => setActiveBubbleIndex(idx)}
+                                    onChange={(e) => {
+                                      const updated = [...bubbles];
+                                      updated[idx] = e.target.value;
+                                      setEditingRule((prev) => ({
+                                        ...prev,
+                                        reply_bubbles: updated,
+                                        reply_text: updated[0] || '',
+                                      }));
+                                    }}
+                                    placeholder={`พิมพ์ข้อความกล่องที่ ${idx + 1} (เช่น ข้อความภาษาไทย / ภาษาอังกฤษ หรือแยกกล่องเลขบัญชี)...`}
+                                    className="w-full border rounded-lg p-2.5 bg-white font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       <div className="flex justify-end gap-2">
                         <button
@@ -3142,9 +3239,30 @@ export default function AdminCondoApp() {
                               </span>
                             </td>
                             <td className="py-2.5 px-3">
-                              <pre className="whitespace-pre-wrap font-sans text-[11px] text-slate-700 max-h-24 overflow-y-auto bg-slate-50 p-2 rounded border">
-                                {rule.reply_text}
-                              </pre>
+                              {Array.isArray(rule.reply_bubbles) && rule.reply_bubbles.length > 1 ? (
+                                <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                                  <div className="flex items-center gap-1.5 text-[10px] text-blue-700 font-bold">
+                                    <span className="px-1.5 py-0.5 bg-blue-100 rounded">
+                                      💬 {rule.reply_bubbles.length} กล่องข้อความ (Bubbles)
+                                    </span>
+                                  </div>
+                                  {rule.reply_bubbles.map((bText, bIdx) => (
+                                    <pre
+                                      key={bIdx}
+                                      className="whitespace-pre-wrap font-sans text-[11px] text-slate-700 bg-slate-50 p-1.5 rounded border border-slate-200"
+                                    >
+                                      <span className="text-[9px] font-bold text-slate-400 block mb-0.5">
+                                        กล่องที่ {bIdx + 1}:
+                                      </span>
+                                      {bText}
+                                    </pre>
+                                  ))}
+                                </div>
+                              ) : (
+                                <pre className="whitespace-pre-wrap font-sans text-[11px] text-slate-700 max-h-24 overflow-y-auto bg-slate-50 p-2 rounded border">
+                                  {rule.reply_text}
+                                </pre>
+                              )}
                             </td>
                             <td className="py-2.5 px-3 text-center">
                               <button
@@ -3163,7 +3281,17 @@ export default function AdminCondoApp() {
                               <div className="flex items-center justify-center gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => setEditingRule(rule)}
+                                  onClick={() => {
+                                    const rawBubbles = Array.isArray(rule.reply_bubbles) && rule.reply_bubbles.length > 0
+                                      ? rule.reply_bubbles
+                                      : [rule.reply_text || ''];
+                                    setEditingRule({
+                                      ...rule,
+                                      reply_bubbles: rawBubbles,
+                                      reply_text: rawBubbles[0] || '',
+                                    });
+                                    setActiveBubbleIndex(0);
+                                  }}
                                   className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold"
                                 >
                                   ✏️ แก้ไข
@@ -3203,7 +3331,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 645 (v2.10)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.14)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button

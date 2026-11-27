@@ -246,7 +246,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
               {pageBills.map((bill) => {
                 const qrUrl = qrMap[bill.room_no] || '';
                 const log = logMap[bill.room_no];
-                const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (645)';
+                const condoName = config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (674)';
                 const bankName = config.BANK_NAME || 'กสิกรไทย';
                 const bankAccNo = config.BANK_ACCOUNT_NO || 'xxx-x-xxxxx-x';
                 const bankAccName = config.BANK_ACCOUNT_NAME || 'นิติบุคคลอาคารชุด สมบูรณ์คอนโดทาวน์';
@@ -444,7 +444,7 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                       <div className="mt-1 text-[9px] text-black text-center border-t border-neutral-400 pt-0.5">
                         <div>
                           {isReceipt
-                            ? 'เอกสารนี้ออกโดยระบบบริหารจัดการอาคารชุด สมบูรณ์คอนโดทาวน์ (645) / Somboon Condo Town (645)'
+                            ? 'เอกสารนี้ออกโดยระบบบริหารจัดการอาคารชุด สมบูรณ์คอนโดทาวน์ (674) / Somboon Condo Town (674)'
                             : `โปรดชำระภายในวันที่ ${bill.due_date} หากโอนแล้วแจ้งสลิปทาง LINE OA / Please pay by due date & notify via LINE OA`}
                         </div>
                       </div>

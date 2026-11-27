@@ -34,7 +34,7 @@ export const MonthlyReportPrintModal: React.FC<MonthlyReportPrintModalProps> = (
   const [audience, setAudience] = useState<'juristic' | 'resident'>('juristic');
   const [reportType, setReportType] = useState<'monthly' | 'annual'>('monthly');
 
-  const condoName = config.CONDO_NAME || 'นิติบุคคลอาคารชุดสมบูรณ์คอนโดทาวน์ (645)';
+  const condoName = config.CONDO_NAME || 'นิติบุคคลอาคารชุดสมบูรณ์คอนโดทาวน์ (674)';
 
   // Build list of distinct periods available from transactions, allYearLogs, and current period
   const availablePeriods = React.useMemo(() => {
