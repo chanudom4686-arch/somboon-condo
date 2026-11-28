@@ -139,12 +139,13 @@ export default function AdminCondoApp() {
   const [testLineCode, setTestLineCode] = useState('');
   const [testLineResult, setTestLineResult] = useState<{ match: boolean; message: string } | null>(null);
 
-  // Admin-Assisted LINE Linker States (v2.21)
+  // Admin-Assisted LINE Linker States (v2.23)
   const [recentLineUsers, setRecentLineUsers] = useState<LineRecentUser[]>([]);
   const [linkingUser, setLinkingUser] = useState<LineRecentUser | null>(null);
   const [preselectedRoomForLink, setPreselectedRoomForLink] = useState<string>('');
   const [isLinkingRoom, setIsLinkingRoom] = useState(false);
-  const [recentUserFilter, setRecentUserFilter] = useState<'unlinked' | 'all'>('unlinked');
+  const [recentUserFilter, setRecentUserFilter] = useState<'unlinked' | 'linked' | 'all'>('unlinked');
+  const [recentUserSearch, setRecentUserSearch] = useState('');
   const [isRefreshingRecentUsers, setIsRefreshingRecentUsers] = useState(false);
 
   // Settings form (Tab 7)
@@ -284,12 +285,39 @@ export default function AdminCondoApp() {
     );
   }, [recentLineUsers, rooms]);
 
+  const linkedRecentUsers = useMemo(() => {
+    return recentLineUsers.filter(
+      (u) => rooms.some((r) => r.line_user_id === u.line_user_id)
+    );
+  }, [recentLineUsers, rooms]);
+
   const displayedRecentUsers = useMemo(() => {
+    let list = recentLineUsers;
     if (recentUserFilter === 'unlinked') {
-      return unlinkedRecentUsers;
+      list = unlinkedRecentUsers;
+    } else if (recentUserFilter === 'linked') {
+      list = linkedRecentUsers;
     }
-    return recentLineUsers;
-  }, [recentUserFilter, unlinkedRecentUsers, recentLineUsers]);
+
+    if (recentUserSearch.trim()) {
+      const q = recentUserSearch.trim().toLowerCase();
+      list = list.filter((u) => {
+        const name = (u.display_name || '').toLowerCase();
+        const msg = (u.last_message || '').toLowerCase();
+        const uid = (u.line_user_id || '').toLowerCase();
+        const linkedRoom = rooms.find((r) => r.line_user_id === u.line_user_id);
+        const rNo = (linkedRoom?.room_no || '').toLowerCase();
+        const owner = (linkedRoom?.owner_name || '').toLowerCase();
+        return name.includes(q) || msg.includes(q) || uid.includes(q) || rNo.includes(q) || owner.includes(q);
+      });
+    }
+
+    return [...list].sort((a, b) => {
+      const timeA = a.last_seen_at ? new Date(a.last_seen_at).getTime() : 0;
+      const timeB = b.last_seen_at ? new Date(b.last_seen_at).getTime() : 0;
+      return timeB - timeA; // Descending: latest first
+    });
+  }, [recentUserFilter, recentUserSearch, unlinkedRecentUsers, linkedRecentUsers, recentLineUsers, rooms]);
 
   useEffect(() => {
     fetchData();
@@ -1303,7 +1331,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.22
+                  ระบบบริหารนิติบุคคล v2.23
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -3395,14 +3423,14 @@ export default function AdminCondoApp() {
                           <div>
                             <div className="flex items-center gap-2">
                               <h3 className="font-bold text-sm sm:text-base text-emerald-300">
-                                แอดมินช่วยผูกห้อง LINE ให้ลูกบ้าน (Admin-Assisted 1-Click Linking &amp; Web Chat)
+                                รายชื่อผู้ติดต่อ LINE &amp; แอดมินช่วยผูกห้อง (LINE Chat &amp; Auto-Linker)
                               </h3>
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
-                                ฟีเจอร์ใหม่ v2.22
+                                ตารางเรียงตามเวลาแชทล่าสุด v2.23
                               </span>
                             </div>
                             <p className="text-slate-300 text-xs mt-0.5">
-                              สำหรับลูกบ้านที่แอดไลน์เข้ามาแล้วแต่ลงทะเบียนไม่เป็น แอดมินสามารถกด &quot;💬 ส่งแชท &amp; ผูกห้อง&quot; เพื่อเลือกห้องและส่งข้อความตอบกลับเข้า LINE ลูกบ้านได้ทันที (ลูกบ้านไม่ต้องพิมพ์อะไรเลย)
+                              แสดงผู้ติดต่อทั้งหมดเรียงจากเวลาที่ส่งข้อความล่าสุด สามารถกรองเลือกระหว่างคนที่ยังไม่ลงทะเบียน หรือคนที่ลงทะเบียนแล้ว พร้อมกดส่งแชทผูกห้องได้ทันที
                             </p>
                           </div>
                         </div>
@@ -3420,146 +3448,221 @@ export default function AdminCondoApp() {
                         </div>
                       </div>
 
-                      {/* Filter Bar & Counters */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                        <div className="flex items-center gap-1.5 bg-slate-800/80 p-1 rounded-2xl border border-slate-700">
+                      {/* Filter Bar, Status Counters & Search Box */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                        {/* 3-State Filter Tabs */}
+                        <div className="flex items-center gap-1 bg-slate-800/90 p-1 rounded-2xl border border-slate-700">
                           <button
                             type="button"
                             onClick={() => setRecentUserFilter('unlinked')}
-                            className={`px-3 py-1 rounded-xl font-bold transition flex items-center gap-1.5 ${
+                            className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
                               recentUserFilter === 'unlinked'
                                 ? 'bg-amber-500 text-slate-950 shadow-sm'
                                 : 'text-slate-300 hover:text-white'
                             }`}
                           >
-                            <span>⏳ รอแอดมินช่วยผูกห้อง</span>
-                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">
+                            <span>⏳ ยังไม่ลงทะเบียน</span>
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20 font-mono">
                               {unlinkedRecentUsers.length}
                             </span>
                           </button>
+
                           <button
                             type="button"
-                            onClick={() => setRecentUserFilter('all')}
-                            className={`px-3 py-1 rounded-xl font-bold transition flex items-center gap-1.5 ${
-                              recentUserFilter === 'all'
+                            onClick={() => setRecentUserFilter('linked')}
+                            className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
+                              recentUserFilter === 'linked'
                                 ? 'bg-emerald-600 text-white shadow-sm'
                                 : 'text-slate-300 hover:text-white'
                             }`}
                           >
+                            <span>✅ ลงทะเบียนแล้ว</span>
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20 font-mono">
+                              {linkedRecentUsers.length}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setRecentUserFilter('all')}
+                            className={`px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 ${
+                              recentUserFilter === 'all'
+                                ? 'bg-blue-600 text-white shadow-sm'
+                                : 'text-slate-300 hover:text-white'
+                            }`}
+                          >
                             <span>📋 ทั้งหมด</span>
-                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20 font-mono">
                               {recentLineUsers.length}
                             </span>
                           </button>
                         </div>
 
-                        <div className="text-slate-400 text-[11px] flex items-center gap-2">
-                          <span>💡 เมื่อลูกบ้านแอดไลน์หรือส่งข้อความเข้ามา จะปรากฏในรายการนี้อัตโนมัติ</span>
+                        {/* Search Input */}
+                        <div className="flex items-center gap-2 flex-1 max-w-xs">
+                          <input
+                            type="text"
+                            value={recentUserSearch}
+                            onChange={(e) => setRecentUserSearch(e.target.value)}
+                            placeholder="🔍 ค้นหาชื่อ LINE / ข้อความ / ห้อง..."
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          />
+                          {recentUserSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setRecentUserSearch('')}
+                              className="text-slate-400 hover:text-white text-xs px-1"
+                            >
+                              ✕
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      {/* Users List Grid */}
-                      {displayedRecentUsers.length === 0 ? (
-                        <div className="bg-slate-800/40 border border-dashed border-slate-700 rounded-2xl p-6 text-center text-slate-400 space-y-1">
-                          <p className="font-semibold text-slate-300 text-xs">
-                            {recentUserFilter === 'unlinked'
-                              ? '✨ ขณะนี้ไม่มีลูกบ้านที่ค้างการผูกห้อง'
-                              : 'ยังไม่มีประวัติผู้ติดต่อผ่าน LINE OA'}
-                          </p>
-                          <p className="text-[11px] text-slate-400">
-                            เมื่อมีลูกบ้านเพิ่มเพื่อนหรือพิมพ์ข้อความเข้ามาใน LINE OA รายชื่อ รูปโปรไฟล์ และข้อความล่าสุดจะแสดงตรงนี้ทันที
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {displayedRecentUsers.map((u) => {
-                            const linkedRoom = rooms.find((r) => r.line_user_id === u.line_user_id);
-                            const isLinked = !!linkedRoom;
-
-                            return (
-                              <div
-                                key={u.line_user_id}
-                                className={`rounded-2xl p-3.5 border transition space-y-2.5 flex flex-col justify-between ${
-                                  isLinked
-                                    ? 'bg-slate-800/60 border-slate-700 hover:border-slate-600'
-                                    : 'bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400 shadow-sm'
-                                }`}
-                              >
-                                <div className="space-y-2">
-                                  <div className="flex items-start gap-2.5">
-                                    {u.picture_url ? (
-                                      <img
-                                        src={u.picture_url}
-                                        alt={u.display_name || 'LINE'}
-                                        className="w-10 h-10 rounded-full border border-slate-600 object-cover shrink-0"
-                                      />
-                                    ) : (
-                                      <div className="w-10 h-10 rounded-full bg-emerald-700/50 text-emerald-200 flex items-center justify-center font-bold text-base shrink-0 border border-emerald-500/30">
-                                        {(u.display_name || 'U').charAt(0).toUpperCase()}
-                                      </div>
-                                    )}
-
-                                    <div className="min-w-0 flex-1">
-                                      <div className="flex items-center justify-between gap-1">
-                                        <h4 className="font-bold text-white text-xs truncate">
-                                          {u.display_name || 'ไม่ระบุชื่อ'}
-                                        </h4>
-                                        <span
-                                          className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold shrink-0 ${
-                                            isLinked
-                                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse'
-                                          }`}
-                                        >
-                                          {isLinked ? `ห้อง ${formatRoomNo(linkedRoom.room_no)}` : 'รอผูกห้อง'}
-                                        </span>
-                                      </div>
-                                      <p className="font-mono text-[9px] text-slate-400 truncate">
-                                        {u.line_user_id}
+                      {/* Responsive Table View (Sorted by Latest Chat DESC) */}
+                      <div className="bg-slate-900/80 rounded-2xl border border-slate-700/80 overflow-hidden shadow-inner">
+                        <div className="max-h-96 overflow-y-auto">
+                          <table className="w-full text-xs text-left">
+                            <thead className="bg-slate-800/90 text-slate-300 border-b border-slate-700 sticky top-0 z-10 backdrop-blur-xs">
+                              <tr>
+                                <th className="py-2.5 px-3 font-semibold w-36">🕒 เวลาแชทล่าสุด</th>
+                                <th className="py-2.5 px-3 font-semibold">👤 โปรไฟล์ LINE</th>
+                                <th className="py-2.5 px-3 font-semibold">💬 ข้อความล่าสุด</th>
+                                <th className="py-2.5 px-3 font-semibold text-center w-40">สถานะการผูกห้อง</th>
+                                <th className="py-2.5 px-3 font-semibold text-center w-36">การจัดการ</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800 text-slate-200">
+                              {displayedRecentUsers.length === 0 ? (
+                                <tr>
+                                  <td colSpan={5} className="py-8 text-center text-slate-400">
+                                    <div className="space-y-1">
+                                      <p className="font-semibold text-slate-300">
+                                        {recentUserFilter === 'unlinked'
+                                          ? '✨ ไม่มีลูกบ้านที่ค้างการผูกห้อง'
+                                          : recentUserFilter === 'linked'
+                                          ? 'ยังไม่มีลูกบ้านที่ผูกห้อง'
+                                          : 'ไม่พบข้อมูลผู้ติดต่อตามเงื่อนไขที่ค้นหา'}
+                                      </p>
+                                      <p className="text-[11px] text-slate-500">
+                                        เมื่อลูกบ้านส่งข้อความหรือแอดไลน์เข้ามา รายชื่อจะปรากฏในตารางนี้ทันที
                                       </p>
                                     </div>
-                                  </div>
+                                  </td>
+                                </tr>
+                              ) : (
+                                displayedRecentUsers.map((u) => {
+                                  const linkedRoom = rooms.find((r) => r.line_user_id === u.line_user_id);
+                                  const isLinked = !!linkedRoom;
 
-                                  {u.last_message && (
-                                    <div className="bg-slate-900/70 border border-slate-700/60 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-300 line-clamp-2">
-                                      💬 &quot;{u.last_message}&quot;
-                                    </div>
-                                  )}
-                                </div>
+                                  const formattedTime = u.last_seen_at
+                                    ? new Date(u.last_seen_at).toLocaleTimeString('th-TH', {
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        day: 'numeric',
+                                        month: 'short',
+                                      })
+                                    : '-';
 
-                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-700/50 text-[10px] text-slate-400">
-                                  <span>
-                                    {u.last_seen_at
-                                      ? new Date(u.last_seen_at).toLocaleTimeString('th-TH', {
-                                          hour: '2-digit',
-                                          minute: '2-digit',
-                                          day: 'numeric',
-                                          month: 'short',
-                                        })
-                                      : 'เพิ่งติดต่อ'}
-                                  </span>
+                                  return (
+                                    <tr
+                                      key={u.line_user_id}
+                                      className={`hover:bg-slate-800/60 transition ${
+                                        !isLinked ? 'bg-amber-950/10' : ''
+                                      }`}
+                                    >
+                                      {/* Column 1: Time */}
+                                      <td className="py-2.5 px-3 font-mono text-[11px] text-slate-300 whitespace-nowrap">
+                                        <div className="flex items-center gap-1.5">
+                                          <span
+                                            className={`inline-block w-2 h-2 rounded-full ${
+                                              !isLinked ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'
+                                            }`}
+                                          />
+                                          <span>{formattedTime}</span>
+                                        </div>
+                                      </td>
 
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setLinkingUser(u);
-                                      setPreselectedRoomForLink(linkedRoom ? linkedRoom.room_no : '');
-                                    }}
-                                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1 ${
-                                      isLinked
-                                        ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-                                        : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold shadow-sm shadow-emerald-500/20'
-                                    }`}
-                                  >
-                                    <span>🔗</span>
-                                    <span>{isLinked ? 'สลับห้องที่ผูก' : '💬 ส่งแชท & ผูกห้อง'}</span>
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
+                                      {/* Column 2: Profile */}
+                                      <td className="py-2.5 px-3">
+                                        <div className="flex items-center gap-2.5">
+                                          {u.picture_url ? (
+                                            <img
+                                              src={u.picture_url}
+                                              alt={u.display_name || 'LINE'}
+                                              className="w-8 h-8 rounded-full border border-slate-600 object-cover shrink-0 shadow-xs"
+                                            />
+                                          ) : (
+                                            <div className="w-8 h-8 rounded-full bg-emerald-800 text-emerald-200 flex items-center justify-center font-bold text-xs shrink-0 border border-emerald-600">
+                                              {(u.display_name || 'U').charAt(0).toUpperCase()}
+                                            </div>
+                                          )}
+                                          <div className="min-w-0">
+                                            <div className="font-bold text-white text-xs truncate max-w-[140px] sm:max-w-[180px]">
+                                              {u.display_name || 'ไม่ระบุชื่อ'}
+                                            </div>
+                                            <div className="font-mono text-[9px] text-slate-400 truncate max-w-[120px]">
+                                              {u.line_user_id}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      {/* Column 3: Last Message */}
+                                      <td className="py-2.5 px-3">
+                                        {u.last_message ? (
+                                          <span className="inline-block max-w-[200px] sm:max-w-xs truncate text-[11px] text-slate-300 bg-slate-800/80 px-2 py-0.5 rounded-lg border border-slate-700/60">
+                                            💬 &quot;{u.last_message}&quot;
+                                          </span>
+                                        ) : (
+                                          <span className="text-slate-500 text-[11px]">-</span>
+                                        )}
+                                      </td>
+
+                                      {/* Column 4: Status */}
+                                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                        {isLinked ? (
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                            <span>✅ ห้อง {formatRoomNo(linkedRoom.room_no)}</span>
+                                            {linkedRoom.owner_name && (
+                                              <span className="text-emerald-400/80 truncate max-w-[80px]">
+                                                ({linkedRoom.owner_name})
+                                              </span>
+                                            )}
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                                            ⏳ ยังไม่ลงทะเบียน
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      {/* Column 5: Action Button */}
+                                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setLinkingUser(u);
+                                            setPreselectedRoomForLink(linkedRoom ? linkedRoom.room_no : '');
+                                          }}
+                                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center justify-center gap-1 mx-auto ${
+                                            isLinked
+                                              ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                                              : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold shadow-sm shadow-emerald-500/20'
+                                          }`}
+                                        >
+                                          <span>{isLinked ? '✏️' : '💬'}</span>
+                                          <span>{isLinked ? 'สลับห้อง' : 'ส่งแชท &amp; ผูกห้อง'}</span>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
                         </div>
-                      )}
+                      </div>
                     </div>
 
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-xs">
@@ -4247,7 +4350,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.22)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.23)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
