@@ -345,6 +345,17 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 </div>
               </div>
 
+              {/* Meter Info Box */}
+              <div className="flex justify-between items-center bg-neutral-100 border border-neutral-300 rounded px-2 py-1 text-[10px] text-neutral-800">
+                <span>
+                  เลขมิเตอร์น้ำ / Water Meter: <b>{billCalc.curr_meter}</b>{' '}
+                  <span className="text-neutral-500 font-normal">(ก่อนหน้า: {billCalc.prev_meter})</span>
+                </span>
+                <span className="font-bold text-black">
+                  ใช้น้ำ: {billCalc.units_used} หน่วย (Units)
+                </span>
+              </div>
+
               {/* Items Table */}
               <div className="space-y-1 py-1 text-[10.5px]">
                 <div className="flex justify-between py-0.5">

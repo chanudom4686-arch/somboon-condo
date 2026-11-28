@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 674 Management System
-// Version 2.15 - Receipt Footer Config, Print LINE QR, and Multi-bubble Fixes
+// Version 2.16 - Auto-reply Master Switch, Smart Exact Matching, and Receipt Water Meter Readings
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -867,6 +867,42 @@ export default function AdminCondoApp() {
     setLineRules((prev) =>
       prev.map((r) => (r.id === rule.id ? { ...r, is_active: !r.is_active } : r))
     );
+  };
+
+  const handleToggleRuleMatchType = async (rule: LineAutoReplyRule) => {
+    const nextType = rule.match_type === 'exact' ? 'contains' : 'exact';
+    try {
+      const { error } = await supabase
+        .from('line_auto_replies')
+        .update({ match_type: nextType })
+        .eq('id', rule.id);
+      if (error) throw error;
+      setLineRules((prev) =>
+        prev.map((r) => (r.id === rule.id ? { ...r, match_type: nextType } : r))
+      );
+    } catch (err: any) {
+      alert('เปลี่ยนรูปแบบการตรวจจับคำไม่สำเร็จ: ' + err.message);
+    }
+  };
+
+  const handleToggleMasterAutoReply = async () => {
+    const isCurrentlyEnabled = config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false';
+    const nextVal = isCurrentlyEnabled ? 'false' : 'true';
+    try {
+      const { error } = await supabase
+        .from('condo_config')
+        .upsert(
+          { key: 'LINE_BOT_AUTO_REPLY_ENABLED', value: nextVal, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        );
+      if (error) throw error;
+      setConfig((prev) => ({
+        ...prev,
+        LINE_BOT_AUTO_REPLY_ENABLED: nextVal,
+      }));
+    } catch (err: any) {
+      alert('เปลี่ยนสถานะบอทตอบกลับไม่สำเร็จ: ' + err.message);
+    }
   };
 
   const handleToggleTxPaid = async (txId: string, currentStatus: boolean) => {
@@ -2990,6 +3026,72 @@ export default function AdminCondoApp() {
                     </button>
                   </div>
 
+                  {/* MASTER AUTO-REPLY BOT TOGGLE */}
+                  <div
+                    className={`p-4 rounded-2xl border-2 flex flex-wrap items-center justify-between gap-3 transition-colors ${
+                      config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false'
+                        ? 'bg-emerald-50/80 border-emerald-300'
+                        : 'bg-rose-50/80 border-rose-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 ${
+                          config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false'
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-rose-600 text-white'
+                        }`}
+                      >
+                        {config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false' ? '🤖' : '⏸️'}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-slate-900">
+                            ระบบบอทตอบกลับอัตโนมัติ (LINE Auto-Reply Master Switch)
+                          </span>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false'
+                                ? 'bg-emerald-200 text-emerald-900'
+                                : 'bg-rose-200 text-rose-900'
+                            }`}
+                          >
+                            {config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false'
+                              ? '🟢 เปิดทำงานปกติ (Active)'
+                              : '🔴 ปิดพักชั่วคราว (คุยสด)'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-0.5">
+                          {config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false'
+                            ? 'บอทจะคอยตอบบิล ใบเสร็จ และคีย์เวิร์ดต่างๆ ให้ลูกบ้านอัตโนมัติตามกฎที่ตั้งไว้'
+                            : '⚠️ บอทหยุดตอบคีย์เวิร์ดทั้งหมดชั่วคราว เพื่อให้เจ้าหน้าที่แอดมินพิมพ์คุยกับลูกบ้านได้โดยไม่มีข้อความบอทแทรก'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleToggleMasterAutoReply}
+                      className={`px-4 py-2 rounded-xl font-bold text-xs shadow transition-colors flex items-center gap-1.5 ${
+                        config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false'
+                          ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      }`}
+                    >
+                      {config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false' ? (
+                        <>
+                          <span>⏸️</span>
+                          <span>ปิดพักระบบบอท (คุยสด)</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>▶️</span>
+                          <span>เปิดใช้งานบอทตอบกลับ</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
                   <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-bold text-slate-800">
@@ -3233,6 +3335,7 @@ export default function AdminCondoApp() {
                           <th className="py-2.5 px-3 text-left">เมื่อลูกบ้านพิมพ์คีย์เวิร์ด</th>
                           <th className="py-2.5 px-3 text-left">หมวดสิทธิ์ข้อมูล</th>
                           <th className="py-2.5 px-3 text-left">ข้อความที่เว็บตอบกลับไปให้ LINE</th>
+                          <th className="py-2.5 px-3 text-center">การตรวจจับ (Match)</th>
                           <th className="py-2.5 px-3 text-center">สถานะ</th>
                           <th className="py-2.5 px-3 text-center">จัดการ</th>
                         </tr>
@@ -3297,6 +3400,20 @@ export default function AdminCondoApp() {
                                   {rule.reply_text}
                                 </pre>
                               )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleRuleMatchType(rule)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition shadow-xs ${
+                                  rule.match_type === 'exact'
+                                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 hover:bg-indigo-100'
+                                    : 'bg-slate-100 border-slate-300 text-slate-700 hover:bg-slate-200'
+                                }`}
+                                title="คลิกเพื่อสลับระหว่าง '🎯 ตรงเป๊ะ' กับ '🔍 ในประโยค'"
+                              >
+                                {rule.match_type === 'exact' ? '🎯 ตรงเป๊ะ' : '🔍 ในประโยค'}
+                              </button>
                             </td>
                             <td className="py-2.5 px-3 text-center">
                               <button

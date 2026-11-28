@@ -1,7 +1,7 @@
 // LINE OA Webhook Handler with Multi-Room Comma-Separated 3-Step Registration (e.g. "001,002"),
 // Multi-Room Bill/Receipt/Statement Support, Bilingual (TH/EN) Commands, Follow Event Welcome,
 // and Admin Working Hours (12.00 - 24.00) — Text-only (No meter photo sent to residents)
-// Version 2.15 - Multi-bubble separated balloon delivery and multi-room consolidated total
+// Version 2.16 - Auto-reply Master Switch, Smart Exact Matching, and Unified Multi-room Bill
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -742,14 +742,26 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
           continue;
         }
 
-        // F. Match against Customizable Auto-Reply Rules (Supports Both Thai & English Keywords & Multi-Room Owners!)
+        // F. Auto-Reply Master Switch Check
+        const autoReplyMasterEnabled = config.LINE_BOT_AUTO_REPLY_ENABLED !== 'false';
+        if (!autoReplyMasterEnabled) {
+          // Master switch is OFF: Bot will not reply to any keywords, allowing human admin to chat freely
+          continue;
+        }
+
+        // F2. Match against Customizable Auto-Reply Rules (Supports Both Thai & English Keywords & Multi-Room Owners!)
+        // Clean text for exact matching (trim, remove common polite particles: ครับ/ค่ะ/คะ/นะ/คับ/ค้าบ/จ้า/จ้ะ/krub/ka)
+        const cleanLowerText = lowerText.trim();
+        const baseLowerText = cleanLowerText.replace(/\s*(ครับ|ค่ะ|คะ|นะ|คับ|ค้าบ|จ้า|จ้ะ|krub|ka)\s*$/i, '').trim();
+
         const matchedRule = rules.find((rule: any) => {
+          if (!rule.is_active) return false;
           const keywords = (rule.keyword || '')
             .split(',')
             .map((k: string) => k.trim().toLowerCase())
             .filter(Boolean);
           if (rule.match_type === 'exact') {
-            return keywords.includes(lowerText);
+            return keywords.includes(cleanLowerText) || keywords.includes(baseLowerText);
           }
           return keywords.some((k: string) => lowerText.includes(k));
         });
@@ -1058,48 +1070,57 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
             }
           } else {
             // Multiple linked rooms (e.g. 2 or more rooms)
-            // 1. Render bill details for each room
-            for (const calc of roomCalculations) {
-              if (ruleBubblesRaw.length === 1) {
-                const rendered = renderSingleTemplate(ruleBubblesRaw[0], calc);
-                if (rendered) renderedTexts.push(rendered);
-              } else {
-                // If rule has multiple bubbles, combine per room to avoid exceeding LINE 5-message quota
-                const roomBlock = ruleBubblesRaw
-                  .map((b) => renderSingleTemplate(b, calc))
-                  .filter(Boolean)
-                  .join('\n\n');
-                if (roomBlock) renderedTexts.push(roomBlock);
-              }
-            }
-
-            // 2. Add Consolidated Multi-Room Summary Bubble for bill queries
+            // Use the exact unified format that admin sends (User requested: "ผมชอบชุดที่แอดมินส่งไปให้ครับ")
             if (mode === 'system_bill' || matchedRule.keyword.includes('บิล') || matchedRule.keyword.includes('bill')) {
-              const roomBreakdownLines = multiRoomList
-                .map(
-                  (m) =>
-                    `• ห้อง ${m.roomNo}: ${m.amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ. (${
-                      m.isPaid ? '✅ ชำระแล้ว' : '⏳ รอชำระ'
-                    })`
-                )
-                .join('\n');
+              const roomBlocks: string[] = [];
 
-              const multiRoomSummaryText =
-                `📊 สรุปยอดรวมชำระ ${multiRoomList.length} ห้องชุด ประจำรอบ ${currentPeriod}\n` +
+              for (const calc of roomCalculations) {
+                const lines = [
+                  `🏠 ห้อง: ${calc.roomNoFormatted}`,
+                  `• ค่าน้ำ: ${Number(calc.waterOnlyAmt.replace(/,/g, '')).toLocaleString()} บ. (${calc.waterUnits} หน่วย [${calc.prevMeter}➔${calc.currMeter}])`,
+                  `• ค่าบำบัดน้ำเสีย: ${Number(calc.wastewaterOnlyAmt.replace(/,/g, '')).toLocaleString()} บ.`,
+                  `• ค่าส่วนกลาง: ${Number(calc.commonFee.replace(/,/g, '')).toLocaleString()} บ.`,
+                ];
+                if (calc.extraItems) {
+                  calc.extraItems.trim().split('\n').forEach((l) => lines.push(l));
+                }
+                lines.push(`➔ รวมห้องนี้: ${calc.totalDue} บ.`);
+                roomBlocks.push(lines.join('\n'));
+              }
+
+              const multiRoomUnifiedBill =
+                `🧾 แจ้งใบแจ้งหนี้รวม ${roomCalculations.length} ห้องชุด ประจำรอบ ${currentPeriod}\n` +
                 `${condoName}\n` +
                 `ผู้รับ: ${consolidatedOwnerName}\n` +
                 `━━━━━━━━━━━━━━\n` +
-                roomBreakdownLines +
-                `\n━━━━━━━━━━━━━━\n` +
+                roomBlocks.join('\n\n') + '\n' +
+                `━━━━━━━━━━━━━━\n` +
                 `💰 ยอดรวมทุกห้องที่ต้องชำระ: ${consolidatedTotalAmount.toLocaleString('th-TH', {
                   minimumFractionDigits: 2,
                 })} บาท\n` +
                 `📅 กำหนดชำระภายในวันที่: ${dueDay}\n\n` +
                 `🏦 ช่องทางโอนชำระ:\n` +
                 `${bankInfoText}\n\n` +
-                `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยนะคะ/ครับ 🙏`;
+                `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏`;
 
-              renderedTexts.push(multiRoomSummaryText);
+              renderedTexts.push(multiRoomUnifiedBill);
+
+              // If rule has Bubble 2 (e.g. late payment policy / terms), send it as the 2nd balloon!
+              if (ruleBubblesRaw.length > 1) {
+                for (let i = 1; i < ruleBubblesRaw.length; i++) {
+                  const b2 = renderSingleTemplate(ruleBubblesRaw[i], roomCalculations[0]);
+                  if (b2) renderedTexts.push(b2);
+                }
+              }
+            } else {
+              // Non-bill per-room queries (e.g. statement or receipt)
+              for (const calc of roomCalculations) {
+                const roomBlock = ruleBubblesRaw
+                  .map((b) => renderSingleTemplate(b, calc))
+                  .filter(Boolean)
+                  .join('\n\n');
+                if (roomBlock) renderedTexts.push(roomBlock);
+              }
             }
           }
 

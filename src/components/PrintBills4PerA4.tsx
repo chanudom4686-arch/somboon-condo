@@ -313,11 +313,10 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
 
                       {/* Meter Info Box */}
                       <div className="border border-black rounded p-1.5 mb-1.5 bg-white text-[11px] text-black">
-                        <div className="flex justify-between">
+                        <div className="flex justify-between items-center">
                           <span>
-                            เลขมิเตอร์ / Meter: <b>{bill.curr_meter}</b>
+                            เลขมิเตอร์น้ำ / Meter: <b>{bill.prev_meter} ➔ {bill.curr_meter}</b>
                           </span>
-                          <span>(ก่อนหน้า / Prev: {bill.prev_meter})</span>
                           <span className="font-bold">ใช้น้ำ / Used: {bill.units_used} หน่วย (Units)</span>
                         </div>
                       </div>
