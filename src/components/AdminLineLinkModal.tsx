@@ -21,7 +21,12 @@ interface AdminLineLinkModalProps {
   rooms: Room[];
   preselectedRoomNo?: string;
   onClose: () => void;
-  onLink: (user: LineRecentUser, roomNo: string, sendWelcomePush: boolean) => Promise<void>;
+  onLink: (
+    user: LineRecentUser,
+    roomNo: string,
+    sendWelcomePush: boolean,
+    customMessage?: string
+  ) => Promise<void>;
   isLinking: boolean;
 }
 
@@ -40,6 +45,7 @@ export function AdminLineLinkModal({
   const [selectedRoomNo, setSelectedRoomNo] = useState<string>(preselectedRoomNo);
   const [roomSearch, setRoomSearch] = useState<string>('');
   const [sendWelcomePush, setSendWelcomePush] = useState<boolean>(true);
+  const [customMessage, setCustomMessage] = useState<string>('');
 
   // Active user object based on selectedUserId
   const currentUser = useMemo(() => {
@@ -47,6 +53,10 @@ export function AdminLineLinkModal({
     const found = availableUsers.find((u) => u.line_user_id === selectedUserId);
     return found || user;
   }, [user, availableUsers, selectedUserId]);
+
+  const targetRoom = useMemo(() => {
+    return rooms.find((r) => r.room_no === selectedRoomNo);
+  }, [rooms, selectedRoomNo]);
 
   // Auto-detect room number from user's last message
   const detectedRoomNo = useMemo(() => {
@@ -68,6 +78,33 @@ export function AdminLineLinkModal({
     }
   }, [detectedRoomNo, preselectedRoomNo, selectedRoomNo]);
 
+  // Initialize custom welcome message
+  useEffect(() => {
+    const rNo = selectedRoomNo ? formatRoomNo(selectedRoomNo) : '...';
+    const name = targetRoom?.owner_name || currentUser?.display_name || 'ลูกบ้าน';
+    setCustomMessage(
+      `🎉 ยินดีต้อนรับค่ะคุณ ${name}!\n\nแอดมินนิติคอนโดได้ดำเนินการผูกบัญชี LINE ของท่านเข้ากับห้อง "${rNo}" เรียบร้อยแล้วนะคะ ✅\n\n📌 จากนี้ไปท่านสามารถ:\n- ดูบิลค่าน้ำและค่าส่วนกลางผ่าน LINE ได้ทันที\n- รับการแจ้งเตือนยอดชำระประจำเดือน\n- ส่งสลิปโอนเงินผ่านห้องแชทนี้ได้เลยค่ะ 😊`
+    );
+  }, [selectedRoomNo, targetRoom, currentUser]);
+
+  const applyPreset = (type: 'standard' | 'bill' | 'short') => {
+    const rNo = selectedRoomNo ? formatRoomNo(selectedRoomNo) : '...';
+    const name = targetRoom?.owner_name || currentUser?.display_name || 'ลูกบ้าน';
+    if (type === 'standard') {
+      setCustomMessage(
+        `🎉 ยินดีต้อนรับค่ะคุณ ${name}!\n\nแอดมินนิติคอนโดได้ดำเนินการผูกบัญชี LINE ของท่านเข้ากับห้อง "${rNo}" เรียบร้อยแล้วนะคะ ✅\n\n📌 จากนี้ไปท่านสามารถดูบิลค่าน้ำ ค่าส่วนกลาง และส่งสลิปโอนเงินผ่านห้องแชทนี้ได้ทันทีค่ะ 😊`
+      );
+    } else if (type === 'bill') {
+      setCustomMessage(
+        `สวัสดีค่ะคุณ ${name} นิติผูกบัญชี LINE ให้กับห้อง "${rNo}" เรียบร้อยแล้วนะคะ ✅\n\nท่านสามารถพิมพ์คำว่า "ดูบิล" เพื่อตรวจสอบยอดค่าน้ำและค่าส่วนกลางรอบปัจจุบันได้ทันทีค่ะ หรือส่งสลิปโอนเงินในห้องแชทนี้ได้เลยนะคะ 🧾`
+      );
+    } else if (type === 'short') {
+      setCustomMessage(
+        `สวัสดีค่ะ นิติผูกห้อง "${rNo}" ให้เรียบร้อยแล้วนะคะ ตรวจสอบบิลได้เลยค่ะ 😊`
+      );
+    }
+  };
+
   // Filtered rooms list for quick search
   const filteredRooms = useMemo(() => {
     const q = roomSearch.trim().toLowerCase();
@@ -79,10 +116,6 @@ export function AdminLineLinkModal({
       return rNo.includes(q) || owner.includes(q) || tenant.includes(q);
     });
   }, [rooms, roomSearch]);
-
-  const targetRoom = useMemo(() => {
-    return rooms.find((r) => r.room_no === selectedRoomNo);
-  }, [rooms, selectedRoomNo]);
 
   const isRoomAlreadyLinked = targetRoom && !!targetRoom.line_user_id;
   const isLinkedToSameUser = targetRoom?.line_user_id === currentUser?.line_user_id;
@@ -97,7 +130,7 @@ export function AdminLineLinkModal({
       alert('กรุณาเลือกเลขห้องที่ต้องการผูก');
       return;
     }
-    await onLink(currentUser, selectedRoomNo, sendWelcomePush);
+    await onLink(currentUser, selectedRoomNo, sendWelcomePush, customMessage);
   };
 
   return (
@@ -109,7 +142,9 @@ export function AdminLineLinkModal({
             <span className="text-2xl p-2 bg-white/10 rounded-2xl">🔗</span>
             <div>
               <h3 className="font-bold text-base sm:text-lg">แอดมินช่วยผูกห้อง LINE</h3>
-              <p className="text-xs text-emerald-100">ผูกห้องให้ลูกบ้านที่ไม่สะดวกทำรายการเอง</p>
+              <p className="text-xs text-emerald-100">
+                ผูกห้องและส่งข้อความตอบกลับเข้า LINE ลูกบ้านในคลิกเดียว (ลูกบ้านไม่ต้องพิมพ์อะไรเลย)
+              </p>
             </div>
           </div>
           <button
@@ -292,24 +327,57 @@ export function AdminLineLinkModal({
             </div>
           )}
 
-          {/* Welcome Push Checkbox */}
-          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 flex items-start gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              id="sendWelcomePush"
-              checked={sendWelcomePush}
-              onChange={(e) => setSendWelcomePush(e.target.checked)}
-              className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+          {/* Quick Chat Box to Resident */}
+          <div className="space-y-2 bg-slate-50 border border-slate-200 rounded-2xl p-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <label className="font-bold text-slate-800 block">
+                💬 ข้อความแชทส่งตอบกลับเข้า LINE ลูกบ้าน (ลูกบ้านไม่ต้องพิมพ์อะไรเลย):
+              </label>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => applyPreset('standard')}
+                  className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 rounded-md text-[10px] font-medium text-slate-700"
+                >
+                  👋 ต้อนรับมาตรฐาน
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPreset('bill')}
+                  className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 rounded-md text-[10px] font-medium text-slate-700"
+                >
+                  🧾 บิล &amp; ยอดชำระ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPreset('short')}
+                  className="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 rounded-md text-[10px] font-medium text-slate-700"
+                >
+                  💬 สั้นกระชับ
+                </button>
+              </div>
+            </div>
+
+            <textarea
+              rows={4}
+              value={customMessage}
+              onChange={(e) => setCustomMessage(e.target.value)}
+              placeholder="พิมพ์ข้อความที่ต้องการส่งเข้า LINE ลูกบ้าน..."
+              className="w-full border border-slate-300 rounded-xl p-2.5 text-xs text-slate-800 focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-white leading-relaxed font-sans"
             />
-            <label htmlFor="sendWelcomePush" className="text-slate-700 cursor-pointer select-none">
-              <span className="font-bold text-slate-800">
-                📩 ส่งข้อความต้อนรับและยืนยันการผูกห้องไปยังแชท LINE ลูกบ้านทันที (แนะนำ)
-              </span>
-              <p className="text-[11px] text-slate-500 mt-0.5">
-                ลูกบ้านจะได้รับข้อความแจ้งเตือนว่านิติได้ผูกห้องให้เรียบร้อยแล้ว
-                พร้อมคำแนะนำวิธีดูบิลและส่งสลิป
-              </p>
-            </label>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="sendWelcomePush"
+                checked={sendWelcomePush}
+                onChange={(e) => setSendWelcomePush(e.target.checked)}
+                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+              />
+              <label htmlFor="sendWelcomePush" className="text-slate-600 cursor-pointer select-none text-[11px]">
+                ส่งข้อความนี้เข้าแชท LINE ของลูกบ้านท่านนี้ทันทีเมื่อผูกสำเร็จ
+              </label>
+            </div>
           </div>
 
           {/* Action Buttons */}
@@ -338,7 +406,7 @@ export function AdminLineLinkModal({
                 </>
               ) : (
                 <>
-                  <span>🔗 ยืนยันผูกห้องทันที</span>
+                  <span>🚀 ส่งข้อความ &amp; ผูกห้องทันที</span>
                 </>
               )}
             </button>

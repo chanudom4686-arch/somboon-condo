@@ -229,9 +229,16 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
       const lineUserId = event.source?.userId;
       if (!replyToken || !lineUserId) continue;
 
+      // 0. Catch-All: Sync profile for ANY incoming event (follow, text, sticker, image, location, etc.)
+      const eventDesc = event.type === 'message'
+        ? (event.message?.type === 'text'
+            ? (event.message.text || '')
+            : `[ส่ง${event.message?.type === 'sticker' ? 'สติกเกอร์' : event.message?.type === 'image' ? 'รูปภาพ/สลิป' : event.message?.type || 'ข้อความ'}]`)
+        : (event.type === 'follow' ? 'เพิ่มเพื่อน (Follow)' : `[${event.type}]`);
+      syncLineUserProfile(lineUserId, accessToken, supabase, eventDesc, event.type);
+
       // 0. Handle New Friend Added ("follow" event)
       if (event.type === 'follow') {
-        syncLineUserProfile(lineUserId, accessToken, supabase, 'เพิ่มเพื่อน (Follow)', 'follow');
         const welcomeBubbles = parseConfigToBubbles(
           config.LINE_WELCOME_NEW_FRIEND,
           DEFAULT_LINE_TEMPLATES.LINE_WELCOME_NEW_FRIEND.defaultBubbles

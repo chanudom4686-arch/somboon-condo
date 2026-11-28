@@ -36,7 +36,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<string, LineTemplateDefinition> = {
       {
         id: '1',
         type: 'text',
-        text: `สวัสดีครับ ยินดีต้อนรับสู่ {condo_name} 🏢\n\n📲 เริ่มต้นรับบิลค่าน้ำ-ค่าส่วนกลางผ่าน LINE: \n- กดปุ่ม "ลงทะเบียน" ที่เมนูด้านล่าง \n- หรือพิมพ์คำว่า "ลงทะเบียน" ส่งมาในแชทนี้ได้เลย\n\n──────────\n\nWelcome to {condo_name} 🏢\n\n📲 Get your utility & common fee bills via LINE:\n- Tap "ลงทะเบียน (Register)" on the bottom menu \n- Or type "Register" in this chat to link your room.`,
+        text: `สวัสดีครับ ยินดีต้อนรับสู่ {condo_name} 🏢\n\n📲 เริ่มต้นรับบิลค่าน้ำ-ค่าส่วนกลางผ่าน LINE: \n- กดปุ่ม "ลงทะเบียน" ที่เมนูด้านล่าง \n- หรือพิมพ์คำว่า "ลงทะเบียน" ส่งมาในแชทนี้ได้เลย\n\n💡 หากท่านไม่สะดวกทำรายการเอง สามารถพิมพ์เพียง "เลขห้อง" (เช่น 064) ส่งเข้ามาในแชทนี้ได้เลยนะคะ แอดมินนิติจะช่วยดำเนินการผูกห้องให้ทันทีค่ะ 😊\n\n──────────\n\nWelcome to {condo_name} 🏢\n\n📲 Get your utility & common fee bills via LINE:\n- Tap "ลงทะเบียน (Register)" on the bottom menu \n- Or type "Register" in this chat to link your room.\n(Or simply type your room number e.g. 064 and admin will assist you)`,
       },
     ],
     allowedTags: [

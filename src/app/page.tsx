@@ -886,7 +886,8 @@ export default function AdminCondoApp() {
   const handleAdminLinkLine = async (
     targetUser: LineRecentUser,
     targetRoomNo: string,
-    sendWelcomePush: boolean = true
+    sendWelcomePush: boolean = true,
+    customMessage?: string
   ) => {
     if (!targetUser || !targetRoomNo) {
       alert('กรุณาเลือกห้องที่ต้องการผูก');
@@ -931,7 +932,7 @@ export default function AdminCondoApp() {
       // 3. Send welcome push message if enabled
       if (sendWelcomePush) {
         try {
-          const welcomeMsg = `🎉 ยินดีต้อนรับค่ะคุณ ${targetUser.display_name || ''}!\n\nแอดมินนิติคอนโดได้ดำเนินการผูกบัญชี LINE ของท่านเข้ากับห้อง "${formatRoomNo(targetRoomNo)}" เรียบร้อยแล้วค่ะ ✅\n\n📌 จากนี้ไปท่านสามารถ:\n- ดูบิลค่าน้ำและค่าส่วนกลางผ่าน LINE ได้ทันที\n- รับการแจ้งเตือนยอดชำระประจำเดือน\n- ส่งสลิปโอนเงินผ่านห้องแชทนี้ได้เลยค่ะ\n\n(หากต้องการสอบถามเพิ่มเติม พิมพ์ข้อความทิ้งไว้ได้เลยนะคะ ทางนิติจะรีบตอบกลับค่ะ)`;
+          const welcomeMsg = customMessage?.trim() || `🎉 ยินดีต้อนรับค่ะคุณ ${targetUser.display_name || ''}!\n\nแอดมินนิติคอนโดได้ดำเนินการผูกบัญชี LINE ของท่านเข้ากับห้อง "${formatRoomNo(targetRoomNo)}" เรียบร้อยแล้วค่ะ ✅\n\n📌 จากนี้ไปท่านสามารถ:\n- ดูบิลค่าน้ำและค่าส่วนกลางผ่าน LINE ได้ทันที\n- รับการแจ้งเตือนยอดชำระประจำเดือน\n- ส่งสลิปโอนเงินผ่านห้องแชทนี้ได้เลยค่ะ\n\n(หากต้องการสอบถามเพิ่มเติม พิมพ์ข้อความทิ้งไว้ได้เลยนะคะ ทางนิติจะรีบตอบกลับค่ะ)`;
 
           await fetch('/api/line/push', {
             method: 'POST',
@@ -1302,7 +1303,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.21
+                  ระบบบริหารนิติบุคคล v2.22
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -3394,14 +3395,14 @@ export default function AdminCondoApp() {
                           <div>
                             <div className="flex items-center gap-2">
                               <h3 className="font-bold text-sm sm:text-base text-emerald-300">
-                                แอดมินช่วยผูกห้อง LINE ให้ลูกบ้าน (Admin-Assisted 1-Click Linking)
+                                แอดมินช่วยผูกห้อง LINE ให้ลูกบ้าน (Admin-Assisted 1-Click Linking &amp; Web Chat)
                               </h3>
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
-                                ฟีเจอร์ใหม่ v2.21
+                                ฟีเจอร์ใหม่ v2.22
                               </span>
                             </div>
                             <p className="text-slate-300 text-xs mt-0.5">
-                              สำหรับลูกบ้านที่แอดไลน์เข้ามาแล้วแต่ลงทะเบียนไม่เป็น แอดมินสามารถกด &quot;🔗 ผูกห้องให้ท่านนี้&quot; เพื่อเลือกห้องและส่งข้อความต้อนรับเข้า LINE ทันที
+                              สำหรับลูกบ้านที่แอดไลน์เข้ามาแล้วแต่ลงทะเบียนไม่เป็น แอดมินสามารถกด &quot;💬 ส่งแชท &amp; ผูกห้อง&quot; เพื่อเลือกห้องและส่งข้อความตอบกลับเข้า LINE ลูกบ้านได้ทันที (ลูกบ้านไม่ต้องพิมพ์อะไรเลย)
                             </p>
                           </div>
                         </div>
@@ -3551,7 +3552,7 @@ export default function AdminCondoApp() {
                                     }`}
                                   >
                                     <span>🔗</span>
-                                    <span>{isLinked ? 'สลับห้องที่ผูก' : 'ผูกห้องให้ท่านนี้'}</span>
+                                    <span>{isLinked ? 'สลับห้องที่ผูก' : '💬 ส่งแชท & ผูกห้อง'}</span>
                                   </button>
                                 </div>
                               </div>
@@ -4246,7 +4247,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.21)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.22)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
