@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 674 Management System
-// Version 2.17 - Bank QR Upload, Large Print QR, Crisp HD Receipt, Bilingual Multi-room Bills
+// Version 2.18 - Customizable QR Notes, Large Print QR, Crisp HD Receipt, Bilingual Multi-room Bills
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -144,9 +144,11 @@ export default function AdminCondoApp() {
   const [lineAccessToken, setLineAccessToken] = useState('');
   const [receiptFooterText, setReceiptFooterText] = useState('ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา');
   const [bankQrImageUrl, setBankQrImageUrl] = useState('');
+  const [bankQrNote, setBankQrNote] = useState('สแกนจ่ายค่าห้อง');
   const [isUploadingBankQr, setIsUploadingBankQr] = useState(false);
   const [showPrintLineQr, setShowPrintLineQr] = useState(true);
   const [lineQrImageUrl, setLineQrImageUrl] = useState('');
+  const [lineQrNote, setLineQrNote] = useState('โอนเงินต้องส่งสลิปเข้าไลน์เท่านั้น');
   const [isUploadingLineQr, setIsUploadingLineQr] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
@@ -183,8 +185,10 @@ export default function AdminCondoApp() {
         setLineAccessToken(configMap.LINE_CHANNEL_ACCESS_TOKEN || '');
         setReceiptFooterText(configMap.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา');
         setBankQrImageUrl(configMap.BANK_QR_IMAGE_URL || '');
+        setBankQrNote(configMap.BANK_QR_NOTE !== undefined ? configMap.BANK_QR_NOTE : 'สแกนจ่ายค่าห้อง');
         setShowPrintLineQr(configMap.SHOW_PRINT_LINE_QR !== 'false');
         setLineQrImageUrl(configMap.LINE_QR_IMAGE_URL || '');
+        setLineQrNote(configMap.LINE_QR_NOTE !== undefined ? configMap.LINE_QR_NOTE : 'โอนเงินต้องส่งสลิปเข้าไลน์เท่านั้น');
       }
 
       const { data: roomsData } = await supabase
@@ -1019,6 +1023,7 @@ export default function AdminCondoApp() {
         { key: 'BANK_ACCOUNT_NO', value: bankAccNo },
         { key: 'BANK_ACCOUNT_NAME', value: bankAccName },
         { key: 'BANK_QR_IMAGE_URL', value: bankQrImageUrl },
+        { key: 'BANK_QR_NOTE', value: bankQrNote },
         { key: 'BILL_DUE_DAY', value: dueDay },
         { key: 'CURRENT_BILLING_PERIOD', value: staffActivePeriod },
         { key: 'LINE_CHANNEL_SECRET', value: lineSecret },
@@ -1026,6 +1031,7 @@ export default function AdminCondoApp() {
         { key: 'RECEIPT_FOOTER_TEXT', value: receiptFooterText },
         { key: 'SHOW_PRINT_LINE_QR', value: showPrintLineQr ? 'true' : 'false' },
         { key: 'LINE_QR_IMAGE_URL', value: lineQrImageUrl },
+        { key: 'LINE_QR_NOTE', value: lineQrNote },
       ];
 
       for (const item of updates) {
@@ -1045,6 +1051,7 @@ export default function AdminCondoApp() {
         BANK_ACCOUNT_NO: bankAccNo,
         BANK_ACCOUNT_NAME: bankAccName,
         BANK_QR_IMAGE_URL: bankQrImageUrl,
+        BANK_QR_NOTE: bankQrNote,
         BILL_DUE_DAY: dueDay,
         CURRENT_BILLING_PERIOD: staffActivePeriod,
         LINE_CHANNEL_SECRET: lineSecret,
@@ -1052,6 +1059,7 @@ export default function AdminCondoApp() {
         RECEIPT_FOOTER_TEXT: receiptFooterText,
         SHOW_PRINT_LINE_QR: showPrintLineQr ? 'true' : 'false',
         LINE_QR_IMAGE_URL: lineQrImageUrl,
+        LINE_QR_NOTE: lineQrNote,
       }));
 
       setSettingsSaved(true);
@@ -3770,6 +3778,18 @@ export default function AdminCondoApp() {
                           <p className="text-[10px] text-slate-500">
                             รูปภาพ QR โค้ดบัญชีธนาคาร หรือ QR พร้อมเพย์ของนิติบุคคล สำหรับให้ลูกบ้านสแกนโอนเงิน
                           </p>
+                          <div className="pt-1.5 border-t border-slate-200">
+                            <label className="text-slate-700 font-bold block text-[11px] mb-1">
+                              💬 ข้อความกำกับ / หมายเหตุข้าง QR โอนเงิน
+                            </label>
+                            <input
+                              type="text"
+                              value={bankQrNote}
+                              onChange={(e) => setBankQrNote(e.target.value)}
+                              placeholder="เช่น สแกนจ่ายค่าห้อง / โอนชำระเงิน"
+                              className="w-full border rounded-lg p-2 text-xs bg-white text-slate-800"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3854,6 +3874,21 @@ export default function AdminCondoApp() {
                             <p className="text-[10px] text-slate-500">
                               แนะนำ: ใช้ไฟล์ <b>M_gainfriends_2dbarcodes_BW.png</b> หรือ <b>S_gainfriends_2dbarcodes_BW.png</b> ที่เป็นภาพขาว-ดำความคมชัดสูง
                             </p>
+                            <div className="pt-1.5 border-t border-slate-200">
+                              <label className="text-slate-700 font-bold block text-[11px] mb-1">
+                                💬 ข้อความกำกับ / หมายเหตุข้าง QR LINE OA (เน้นย้ำลูกบ้าน)
+                              </label>
+                              <input
+                                type="text"
+                                value={lineQrNote}
+                                onChange={(e) => setLineQrNote(e.target.value)}
+                                placeholder="เช่น โอนเงินต้องส่งสลิปเข้าไลน์เท่านั้น"
+                                className="w-full border rounded-lg p-2 text-xs bg-white text-slate-800 font-medium"
+                              />
+                              <p className="text-[10px] text-blue-700 font-semibold mt-1">
+                                ✓ ข้อความนี้จะแสดงอย่างเด่นชัดข้างๆ รูป QR Code LINE ในบิลตอนพิมพ์
+                              </p>
+                            </div>
                           </div>
                         </div>
                       </div>

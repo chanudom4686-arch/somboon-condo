@@ -260,6 +260,8 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                 const showLineQr = config.SHOW_PRINT_LINE_QR !== 'false';
                 const lineQrUrl = config.LINE_QR_IMAGE_URL || '';
                 const bankQrUrl = config.BANK_QR_IMAGE_URL || '';
+                const bankQrNote = config.BANK_QR_NOTE || 'สแกนจ่ายค่าห้อง';
+                const lineQrNote = config.LINE_QR_NOTE || 'โอนเงินต้องส่งสลิปเข้าไลน์เท่านั้น';
                 const hasBankQr = !!bankQrUrl;
                 const hasLineQr = showLineQr && !!lineQrUrl;
                 const receiptFooterText = config.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา';
@@ -428,7 +430,9 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                                 alt="Bank Transfer QR"
                                 className={`${hasLineQr ? 'w-16 h-16' : 'w-22 h-22'} border border-black rounded bg-white p-0.5 object-contain`}
                               />
-                              <span className="text-[7.5px] font-bold mt-0.5">QR โอนเงิน</span>
+                              <span className="text-[7.5px] font-bold mt-0.5 text-center max-w-[70px] truncate leading-tight">
+                                {bankQrNote || 'QR โอนเงิน'}
+                              </span>
                             </div>
                           )}
 
@@ -440,24 +444,24 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                                 alt="LINE OA QR"
                                 className={`${hasBankQr ? 'w-16 h-16' : 'w-22 h-22'} border border-black rounded bg-white p-0.5 object-contain`}
                               />
-                              <span className="text-[7.5px] font-bold mt-0.5">LINE OA</span>
+                              <span className="text-[7.5px] font-bold mt-0.5 text-center max-w-[80px] leading-tight">
+                                LINE OA
+                              </span>
                             </div>
                           )}
 
                           {/* Bank details & instructions */}
-                          <div className="text-[9.5px] leading-tight flex-1 text-black min-w-0">
-                            <div className="font-bold truncate">
-                              {hasBankQr
-                                ? 'สแกนจ่าย / พร้อมเพย์ QR'
-                                : hasLineQr
-                                ? 'แอดไลน์แจ้งสลิป / ส่งหลักฐาน'
-                                : 'ช่องทางโอนชำระเงิน'}
+                          <div className="text-[9px] leading-tight flex-1 text-black min-w-0">
+                            {/* Prominently Emphasized Note Next to QR */}
+                            <div className="font-extrabold text-[9.5px] text-black border-b border-black pb-0.5 mb-1 leading-snug">
+                              📌 {lineQrNote || 'โอนเงินต้องส่งสลิปเข้าไลน์เท่านั้น'}
                             </div>
+
                             <div className="truncate">โอน: {bankName}</div>
-                            <div className="font-mono font-bold truncate">{bankAccNo}</div>
+                            <div className="font-mono font-bold text-[10px] truncate">{bankAccNo}</div>
                             <div className="truncate">{bankAccName}</div>
                             {bill.contribution_after > 0 && (
-                              <div className="font-semibold text-[8.5px] mt-0.5 truncate">
+                              <div className="font-semibold text-[8px] mt-0.5 truncate">
                                 เครดิต / Credit: {bill.contribution_after.toLocaleString()} ฿
                               </div>
                             )}

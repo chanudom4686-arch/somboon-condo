@@ -112,6 +112,8 @@ export interface CondoConfig {
   RECEIPT_FOOTER_TEXT?: string;
   SHOW_PRINT_LINE_QR?: string; // 'true' | 'false'
   LINE_QR_IMAGE_URL?: string;
+  BANK_QR_NOTE?: string;
+  LINE_QR_NOTE?: string;
   [key: string]: string | undefined;
 }
 
