@@ -168,33 +168,49 @@ export async function POST(req: NextRequest) {
           consolidatedTotal += bill.total_amount;
           commonDueDate = bill.due_date;
 
+          const extraLines: string[] = [];
+          if (bill.late_fee > 0) {
+            extraLines.push(`• เบี้ยปรับชำระล่าช้า / Late Fee: +${bill.late_fee.toLocaleString()} บ.`);
+          }
+          if (bill.outstanding_balance > 0) {
+            extraLines.push(`• ยอดค้างชำระยกมา / Arrears: +${bill.outstanding_balance.toLocaleString()} บ.`);
+          }
+          if (bill.special_items !== 0) {
+            extraLines.push(`• รายการพิเศษ / Extra (${bill.special_items_note || '-'}): ${bill.special_items > 0 ? '+' : ''}${bill.special_items.toLocaleString()} บ.`);
+          }
+          if (bill.contribution_deducted > 0) {
+            extraLines.push(`• หักเครดิตสมทบทุน / Fund Credit: -${bill.contribution_deducted.toLocaleString()} บ.`);
+          }
+          if (bill.prepaid_deducted > 0) {
+            extraLines.push(`• หักเงินฝากล่วงหน้า / Prepaid Deposit: -${bill.prepaid_deducted.toLocaleString()} บ.`);
+          }
+
           roomBlocks.push(
-            `🏠 ห้อง: ${formatRoomNo(room.room_no)}\n` +
-            `• ค่าน้ำ: ${bill.water_amount.toLocaleString()} บ. (${bill.units_used} หน่วย [${bill.prev_meter}➔${bill.curr_meter}])\n` +
-            `• ค่าบำบัดน้ำเสีย: ${bill.wastewater_amount.toLocaleString()} บ.\n` +
-            `• ค่าส่วนกลาง: ${bill.common_fee.toLocaleString()} บ.` +
-            (bill.late_fee > 0 ? `\n• เบี้ยปรับ: +${bill.late_fee.toLocaleString()} บ.` : '') +
-            (bill.outstanding_balance > 0 ? `\n• ยอดค้างยกมา: +${bill.outstanding_balance.toLocaleString()} บ.` : '') +
-            (bill.special_items !== 0 ? `\n• รายการพิเศษ: ${bill.special_items > 0 ? '+' : ''}${bill.special_items.toLocaleString()} บ.` : '') +
-            `\n➔ รวมห้องนี้: ${bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.`
+            `🏠 ห้อง / Room: ${formatRoomNo(room.room_no)}\n` +
+            `• ค่าน้ำประปา / Water: ${bill.water_amount.toLocaleString()} บ. (${bill.units_used} Units [${bill.prev_meter}➔${bill.curr_meter}])\n` +
+            `• ค่าบำบัดน้ำเสีย / Wastewater: ${bill.wastewater_amount.toLocaleString()} บ.\n` +
+            `• ค่าส่วนกลาง / Common Fee: ${bill.common_fee.toLocaleString()} บ.` +
+            (extraLines.length > 0 ? '\n' + extraLines.join('\n') : '') +
+            `\n➔ รวมห้องนี้ / Subtotal: ${bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ. (THB)`
           );
         }
 
-        const ownerName = ownerRooms[0]?.owner_name || ownerRooms[0]?.tenant_name || 'ท่านเจ้าของร่วม';
+        const ownerName = ownerRooms[0]?.owner_name || ownerRooms[0]?.tenant_name || 'ท่านเจ้าของร่วม / Resident';
 
         messageText =
           `🧾 แจ้งใบแจ้งหนี้รวม ${ownerRooms.length} ห้องชุด ประจำรอบ ${activePeriod}\n` +
+          `Consolidated Invoice for ${ownerRooms.length} Rooms - Period ${activePeriod}\n` +
           `${condoName}\n` +
-          `ผู้รับ: ${ownerName}\n` +
+          `ผู้รับ / Resident: ${ownerName}\n` +
           `━━━━━━━━━━━━━━\n` +
           roomBlocks.join('\n\n') + '\n' +
           `━━━━━━━━━━━━━━\n` +
-          `💰 ยอดรวมทุกห้องที่ต้องชำระ: ${consolidatedTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท\n` +
-          `📅 กำหนดชำระภายในวันที่: ${commonDueDate}\n\n` +
-          `🏦 ช่องทางโอนชำระ:\n` +
-          `${config.BANK_NAME || 'กสิกรไทย'} เลขบัญชี: ${config.BANK_ACCOUNT_NO || '-'}\n` +
-          `ชื่อบัญชี: ${config.BANK_ACCOUNT_NAME || condoName}\n\n` +
-          `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏`;
+          `💰 ยอดรวมทุกห้องที่ต้องชำระ / Total Amount Due: ${consolidatedTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท / THB\n` +
+          `📅 กำหนดชำระภายในวันที่ / Due Date: ${commonDueDate}\n\n` +
+          `🏦 ช่องทางโอนชำระ / Payment Transfer:\n` +
+          `${config.BANK_NAME || 'กสิกรไทย'} เลขบัญชี / A/C: ${config.BANK_ACCOUNT_NO || '-'}\n` +
+          `ชื่อบัญชี / A/C Name: ${config.BANK_ACCOUNT_NAME || condoName}\n\n` +
+          `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏\nPlease attach transfer slip in this chat after payment.`;
 
       } else {
         // Single Room Bill Push

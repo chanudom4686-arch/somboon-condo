@@ -6,7 +6,7 @@
 import React, { useState, useRef } from 'react';
 import { Room, MeterLog, CondoConfig } from '@/types/condo';
 import { createClient } from '@/utils/supabase/client';
-import { formatRoomNo, generateReceiptNo, calculateBill, isPeriodPastDue, calculateSuggestedLateFee } from '@/utils/billing';
+import { formatRoomNo, generateReceiptNo, calculateBill, isPeriodPastDue, calculateSuggestedLateFee, getPrintableCustomItems } from '@/utils/billing';
 import { toPng } from 'html-to-image';
 
 interface PaymentModalProps {
@@ -211,10 +211,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     setLineSendError(null);
 
     try {
-      // 1. Render DOM node to high-res PNG dataURL
+      // 1. Render DOM node to high-res PNG dataURL (Retina 2.5x for crystal-clear mobile viewing)
       const dataUrl = await toPng(receiptRef.current, {
         cacheBust: true,
-        quality: 0.95,
+        pixelRatio: 2.5,
+        quality: 1,
         backgroundColor: '#ffffff',
       });
 
@@ -282,7 +283,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   if (successReceipt) {
     return (
       <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-3 overflow-y-auto">
-        <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col my-auto">
           {/* Top Bar */}
           <div className="bg-emerald-700 text-white px-5 py-3.5 flex justify-between items-center">
             <div className="flex items-center gap-2">
@@ -300,123 +301,145 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </button>
           </div>
 
-          <div className="p-4 space-y-3.5">
-            {/* Visual Receipt Node to capture as Image */}
-            <div
-              ref={receiptRef}
-              className="bg-white border-2 border-slate-900 rounded-xl p-4 text-black text-xs space-y-2 shadow-xs"
-            >
-              {/* Receipt Header */}
-              <div className="text-center border-b border-black pb-2">
-                <div className="font-extrabold text-sm text-black">
-                  {config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (674)'}
-                </div>
-                <div className="text-[11px] font-bold text-black mt-0.5">
-                  ใบเสร็จรับเงิน / RECEIPT
-                </div>
-                <div className="text-[10px] text-neutral-600 font-mono mt-0.5">
-                  เลขที่: {successReceipt.receiptNo} • รอบบิล: {period}
-                </div>
-              </div>
+          <div className="p-4 space-y-3.5 overflow-x-auto">
+            {/* Visual Receipt Node to capture as Image (Official Web Layout, High DPI) */}
+            {(() => {
+              const customLineItems = getPrintableCustomItems(billCalc.special_items_note, billCalc.special_items);
+              const paidDateStr = new Date(successReceipt.paidTimestamp).toLocaleDateString('th-TH', {
+                timeZone: 'Asia/Bangkok',
+              });
 
-              {/* Room & Payer Info */}
-              <div className="grid grid-cols-2 gap-2 text-[11px] py-1 border-b border-neutral-300">
-                <div>
-                  <span className="text-neutral-500 block text-[9.5px]">ห้องชุด / Room</span>
-                  <span className="font-mono font-bold text-sm">{formatRoomNo(room.room_no)}</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-neutral-500 block text-[9.5px]">วันที่รับชำระ / Date</span>
-                  <span className="font-mono font-semibold">
-                    {new Date(successReceipt.paidTimestamp).toLocaleDateString('th-TH', {
-                      timeZone: 'Asia/Bangkok',
-                    })}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-neutral-500 block text-[9.5px]">เจ้าของร่วม / Name</span>
-                  <span className="font-medium truncate block">
-                    {room.owner_name || room.tenant_name || 'ท่านเจ้าของร่วม'}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-neutral-500 block text-[9.5px]">วิธีชำระ / Method</span>
-                  <span className="font-semibold">{successReceipt.paymentMethod}</span>
-                </div>
-              </div>
+              return (
+                <div
+                  ref={receiptRef}
+                  style={{ width: '540px' }}
+                  className="bg-white border-2 border-black rounded-lg p-5 text-black text-xs space-y-2.5 shadow-sm mx-auto"
+                >
+                  {/* Header (Matching Official Web Printout) */}
+                  <div className="flex justify-between items-start border-b-2 border-black pb-2 mb-2">
+                    <div>
+                      <div className="font-bold text-base text-black">{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์ (674)'}</div>
+                      <div className="text-[12px] font-bold text-black mt-0.5">
+                        ใบเสร็จรับเงิน / RECEIPT
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-extrabold text-black text-base border-2 border-black px-2.5 py-0.5 rounded bg-neutral-100 inline-block font-mono">
+                        ห้อง / Room {formatRoomNo(room.room_no)}
+                      </div>
+                      <div className="text-[11px] text-neutral-800 mt-1 font-mono">
+                        เลขที่ / No: {successReceipt.receiptNo}
+                      </div>
+                    </div>
+                  </div>
 
-              {/* Meter Info Box */}
-              <div className="flex justify-between items-center bg-neutral-100 border border-neutral-300 rounded px-2 py-1 text-[10px] text-neutral-800">
-                <span>
-                  เลขมิเตอร์น้ำ / Water Meter: <b>{billCalc.curr_meter}</b>{' '}
-                  <span className="text-neutral-500 font-normal">(ก่อนหน้า: {billCalc.prev_meter})</span>
-                </span>
-                <span className="font-bold text-black">
-                  ใช้น้ำ: {billCalc.units_used} หน่วย (Units)
-                </span>
-              </div>
+                  {/* Period & Paid Date */}
+                  <div className="flex justify-between border border-black bg-neutral-100 px-3 py-1.5 rounded mb-2 text-xs text-black">
+                    <div>
+                      <span>รอบบิล / Period: </span>
+                      <span className="font-bold">{period}</span>
+                    </div>
+                    <div>
+                      <span>วันที่ชำระ / Paid Date: </span>
+                      <span className="font-bold underline">{paidDateStr}</span>
+                    </div>
+                  </div>
 
-              {/* Items Table */}
-              <div className="space-y-1 py-1 text-[10.5px]">
-                <div className="flex justify-between py-0.5">
-                  <span>1. ค่าน้ำประปา / Water Supply ({billCalc.units_used} units @ 35 ฿)</span>
-                  <span className="font-mono font-semibold">{billCalc.water_amount.toLocaleString()} ฿</span>
-                </div>
-                <div className="flex justify-between py-0.5">
-                  <span>2. ค่าบำบัดน้ำเสีย / Wastewater ({billCalc.units_used} units @ 5 ฿)</span>
-                  <span className="font-mono font-semibold">{billCalc.wastewater_amount.toLocaleString()} ฿</span>
-                </div>
-                <div className="flex justify-between py-0.5">
-                  <span>3. ค่าส่วนกลาง / Common Area Fee</span>
-                  <span className="font-mono font-semibold">{billCalc.common_fee.toLocaleString()} ฿</span>
-                </div>
-                {billCalc.late_fee > 0 && (
-                  <div className="flex justify-between py-0.5 text-rose-700 font-semibold">
-                    <span>4. เบี้ยปรับชำระล่าช้า / Late Fee</span>
-                    <span className="font-mono">+{billCalc.late_fee.toLocaleString()} ฿</span>
+                  {/* Meter Info Box */}
+                  <div className="border border-black rounded p-2 mb-2 bg-white text-xs text-black">
+                    <div className="flex justify-between items-center">
+                      <span>
+                        เลขมิเตอร์น้ำ / Meter: <b>{billCalc.prev_meter} ➔ {billCalc.curr_meter}</b>
+                      </span>
+                      <span className="font-bold">ใช้น้ำ / Used: {billCalc.units_used} หน่วย (Units)</span>
+                    </div>
                   </div>
-                )}
-                {billCalc.special_items !== 0 && (
-                  <div className="flex justify-between py-0.5">
-                    <span>5. รายการพิเศษ / Extra Items ({billCalc.special_items_note || '-'})</span>
-                    <span className="font-mono font-semibold">
-                      {billCalc.special_items > 0 ? '+' : ''}{billCalc.special_items.toLocaleString()} ฿
-                    </span>
-                  </div>
-                )}
-                {billCalc.contribution_deducted > 0 && (
-                  <div className="flex justify-between py-0.5 text-blue-700">
-                    <span>• หักเครดิตสมทบทุน / Fund Credit</span>
-                    <span className="font-mono">-{billCalc.contribution_deducted.toLocaleString()} ฿</span>
-                  </div>
-                )}
-                {billCalc.prepaid_deducted > 0 && (
-                  <div className="flex justify-between py-0.5 text-emerald-700">
-                    <span>• หักเงินฝากล่วงหน้า / Prepaid Deposit</span>
-                    <span className="font-mono">-{billCalc.prepaid_deducted.toLocaleString()} ฿</span>
-                  </div>
-                )}
-                {billCalc.outstanding_balance > 0 && (
-                  <div className="flex justify-between py-0.5 text-amber-800">
-                    <span>• ยอดค้างชำระยกมา / Outstanding Balance</span>
-                    <span className="font-mono">+{billCalc.outstanding_balance.toLocaleString()} ฿</span>
-                  </div>
-                )}
-              </div>
 
-              {/* Total Row */}
-              <div className="border-t-2 border-black pt-1.5 flex justify-between items-center text-sm font-extrabold">
-                <span>ยอดเงินที่รับชำระทั้งสิ้น / TOTAL RECEIVED</span>
-                <span className="font-mono text-emerald-800">
-                  {successReceipt.paidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท (THB)
-                </span>
-              </div>
+                  {/* Calculation Breakdown Table */}
+                  <table className="w-full text-xs mb-2 text-black border-collapse">
+                    <tbody>
+                      <tr className="border-b border-neutral-300">
+                        <td className="py-1">1. ค่าน้ำประปา / Water Supply ({billCalc.units_used} Units × {billCalc.water_rate} ฿)</td>
+                        <td className="text-right font-mono font-medium">{billCalc.water_amount.toFixed(2)}</td>
+                      </tr>
+                      <tr className="border-b border-neutral-300">
+                        <td className="py-1">2. ค่าบำบัดน้ำเสีย / Wastewater ({billCalc.units_used} Units × {billCalc.wastewater_rate} ฿)</td>
+                        <td className="text-right font-mono font-medium">{billCalc.wastewater_amount.toFixed(2)}</td>
+                      </tr>
+                      <tr className="border-b border-neutral-300">
+                        <td className="py-1">3. ค่าส่วนกลาง / Common Area Fee</td>
+                        <td className="text-right font-mono font-medium">{billCalc.common_fee.toFixed(2)}</td>
+                      </tr>
+                      {customLineItems.map((cItem, cIdx) => (
+                        <tr key={cIdx} className="border-b border-neutral-300 font-semibold">
+                          <td className="py-1">{cIdx + 4}. {cItem.label}</td>
+                          <td className="text-right font-mono">{cItem.amount > 0 ? `+${cItem.amount.toFixed(2)}` : cItem.amount.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                      {billCalc.late_fee > 0 && (
+                        <tr className="border-b border-neutral-300 font-semibold text-rose-800">
+                          <td className="py-1">เบี้ยปรับชำระล่าช้า / Late Payment Fee</td>
+                          <td className="text-right font-mono">+{billCalc.late_fee.toFixed(2)}</td>
+                        </tr>
+                      )}
+                      {billCalc.contribution_deducted > 0 && (
+                        <tr className="border-b border-neutral-300 font-semibold text-blue-800">
+                          <td className="py-1">★ หักเครดิตสมทบทุน / Fund Credit</td>
+                          <td className="text-right font-mono">-{billCalc.contribution_deducted.toFixed(2)}</td>
+                        </tr>
+                      )}
+                      {billCalc.prepaid_deducted > 0 && (
+                        <tr className="border-b border-neutral-300 font-semibold text-emerald-800">
+                          <td className="py-1">★ หักเงินฝากล่วงหน้า / Prepaid Deposit</td>
+                          <td className="text-right font-mono">-{billCalc.prepaid_deducted.toFixed(2)}</td>
+                        </tr>
+                      )}
+                      {billCalc.outstanding_balance > 0 && (
+                        <tr className="border-b border-neutral-300 font-bold text-amber-900">
+                          <td className="py-1">ค้างชำระยกมา / Outstanding Balance</td>
+                          <td className="text-right font-mono">+{billCalc.outstanding_balance.toFixed(2)}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
 
-              {/* Receipt Footer */}
-              <div className="text-[9.5px] text-center text-neutral-500 pt-1 border-t border-neutral-300">
-                {config.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา'}
-              </div>
-            </div>
+                  {/* Total Received Box */}
+                  <div className="border-2 border-black bg-neutral-100 text-black p-2.5 rounded flex justify-between items-center mb-2">
+                    <div>
+                      <div className="text-xs font-bold text-black">ยอดรับชำระสุทธิ</div>
+                      <div className="text-[10px] font-semibold text-neutral-700">TOTAL RECEIVED</div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xl font-extrabold text-black font-mono">
+                        {successReceipt.paidAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-xs font-bold text-black ml-1.5">บาท/THB</span>
+                    </div>
+                  </div>
+
+                  {/* Paid Status & Signature */}
+                  <div className="bg-white border border-black p-2.5 rounded text-xs text-black flex justify-between items-center">
+                    <div className="space-y-1">
+                      <div className="font-bold text-black">
+                        ✓ ได้รับชำระเงินเรียบร้อยแล้ว / Paid Successfully {isLatePayment ? '(ชำระล่าช้า / Late)' : '(ตรงตามกำหนด / On Time)'}
+                      </div>
+                      <div className="text-neutral-800">
+                        รับชำระโดย / Paid by: <b className="underline">{successReceipt.paymentMethod}</b>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[11px] text-neutral-700">ผู้รับเงิน / Authorized Signature</div>
+                      <div className="font-bold text-black mt-1.5">________________</div>
+                    </div>
+                  </div>
+
+                  {/* Notes / Footer */}
+                  <div className="mt-1 text-[11px] text-black text-center border-t border-neutral-300 pt-1">
+                    <div>{config.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา'}</div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Notification messages */}
             {lineSendSuccess && (

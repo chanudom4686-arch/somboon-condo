@@ -314,3 +314,36 @@ export function calculateBill(
     line_reg_code: lineRegCode,
   };
 }
+
+export function getPrintableCustomItems(noteStr?: string, totalSpecial = 0): { label: string; amount: number }[] {
+  const clean = (noteStr || '').trim();
+  if (!clean && totalSpecial === 0) return [];
+
+  if (clean.includes('|') || /\([+-]?\d+(\.\d+)?\s*บ\.\)/.test(clean)) {
+    const parts = clean.split('|').map((p) => p.trim()).filter(Boolean);
+    const items: { label: string; amount: number }[] = [];
+    parts.forEach((part) => {
+      const match = part.match(/^(.*?)\s*\(([+-]?\d+(?:\.\d+)?)\s*บ\.\)$/);
+      if (match) {
+        items.push({
+          label: match[1].trim() || 'รายการเพิ่มเติม',
+          amount: parseFloat(match[2]) || 0,
+        });
+      } else {
+        items.push({
+          label: part,
+          amount: parts.length === 1 ? totalSpecial : 0,
+        });
+      }
+    });
+    if (items.length > 0) return items;
+  }
+
+  return [
+    {
+      label: clean || (totalSpecial < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'),
+      amount: totalSpecial,
+    },
+  ];
+}
+

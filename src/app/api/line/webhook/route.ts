@@ -1,7 +1,7 @@
 // LINE OA Webhook Handler with Multi-Room Comma-Separated 3-Step Registration (e.g. "001,002"),
 // Multi-Room Bill/Receipt/Statement Support, Bilingual (TH/EN) Commands, Follow Event Welcome,
 // and Admin Working Hours (12.00 - 24.00) — Text-only (No meter photo sent to residents)
-// Version 2.16 - Auto-reply Master Switch, Smart Exact Matching, and Unified Multi-room Bill
+// Version 2.17 - Auto-reply Master Switch, Smart Exact Matching, and Bilingual Multi-room Bill
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -1076,32 +1076,33 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
 
               for (const calc of roomCalculations) {
                 const lines = [
-                  `🏠 ห้อง: ${calc.roomNoFormatted}`,
-                  `• ค่าน้ำ: ${Number(calc.waterOnlyAmt.replace(/,/g, '')).toLocaleString()} บ. (${calc.waterUnits} หน่วย [${calc.prevMeter}➔${calc.currMeter}])`,
-                  `• ค่าบำบัดน้ำเสีย: ${Number(calc.wastewaterOnlyAmt.replace(/,/g, '')).toLocaleString()} บ.`,
-                  `• ค่าส่วนกลาง: ${Number(calc.commonFee.replace(/,/g, '')).toLocaleString()} บ.`,
+                  `🏠 ห้อง / Room: ${calc.roomNoFormatted}`,
+                  `• ค่าน้ำประปา / Water: ${Number(calc.waterOnlyAmt.replace(/,/g, '')).toLocaleString()} บ. (${calc.waterUnits} Units [${calc.prevMeter}➔${calc.currMeter}])`,
+                  `• ค่าบำบัดน้ำเสีย / Wastewater: ${Number(calc.wastewaterOnlyAmt.replace(/,/g, '')).toLocaleString()} บ.`,
+                  `• ค่าส่วนกลาง / Common Fee: ${Number(calc.commonFee.replace(/,/g, '')).toLocaleString()} บ.`,
                 ];
                 if (calc.extraItems) {
                   calc.extraItems.trim().split('\n').forEach((l) => lines.push(l));
                 }
-                lines.push(`➔ รวมห้องนี้: ${calc.totalDue} บ.`);
+                lines.push(`➔ รวมห้องนี้ / Subtotal: ${calc.totalDue} บ. (THB)`);
                 roomBlocks.push(lines.join('\n'));
               }
 
               const multiRoomUnifiedBill =
                 `🧾 แจ้งใบแจ้งหนี้รวม ${roomCalculations.length} ห้องชุด ประจำรอบ ${currentPeriod}\n` +
+                `Consolidated Invoice for ${roomCalculations.length} Rooms - Period ${currentPeriod}\n` +
                 `${condoName}\n` +
-                `ผู้รับ: ${consolidatedOwnerName}\n` +
+                `ผู้รับ / Resident: ${consolidatedOwnerName}\n` +
                 `━━━━━━━━━━━━━━\n` +
                 roomBlocks.join('\n\n') + '\n' +
                 `━━━━━━━━━━━━━━\n` +
-                `💰 ยอดรวมทุกห้องที่ต้องชำระ: ${consolidatedTotalAmount.toLocaleString('th-TH', {
+                `💰 ยอดรวมทุกห้องที่ต้องชำระ / Total Amount Due: ${consolidatedTotalAmount.toLocaleString('th-TH', {
                   minimumFractionDigits: 2,
-                })} บาท\n` +
-                `📅 กำหนดชำระภายในวันที่: ${dueDay}\n\n` +
-                `🏦 ช่องทางโอนชำระ:\n` +
+                })} บาท / THB\n` +
+                `📅 กำหนดชำระภายในวันที่ / Due Date: ${dueDay}\n\n` +
+                `🏦 ช่องทางโอนชำระ / Payment Transfer:\n` +
                 `${bankInfoText}\n\n` +
-                `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏`;
+                `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏\nPlease attach transfer slip in this chat after payment.`;
 
               renderedTexts.push(multiRoomUnifiedBill);
 

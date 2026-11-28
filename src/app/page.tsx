@@ -1,7 +1,7 @@
 'use client';
 
 // Main Application Page for Condo 674 Management System
-// Version 2.16 - Auto-reply Master Switch, Smart Exact Matching, and Receipt Water Meter Readings
+// Version 2.17 - Bank QR Upload, Large Print QR, Crisp HD Receipt, Bilingual Multi-room Bills
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
@@ -143,6 +143,8 @@ export default function AdminCondoApp() {
   const [lineSecret, setLineSecret] = useState('');
   const [lineAccessToken, setLineAccessToken] = useState('');
   const [receiptFooterText, setReceiptFooterText] = useState('ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา');
+  const [bankQrImageUrl, setBankQrImageUrl] = useState('');
+  const [isUploadingBankQr, setIsUploadingBankQr] = useState(false);
   const [showPrintLineQr, setShowPrintLineQr] = useState(true);
   const [lineQrImageUrl, setLineQrImageUrl] = useState('');
   const [isUploadingLineQr, setIsUploadingLineQr] = useState(false);
@@ -180,6 +182,7 @@ export default function AdminCondoApp() {
         setLineSecret(configMap.LINE_CHANNEL_SECRET || '');
         setLineAccessToken(configMap.LINE_CHANNEL_ACCESS_TOKEN || '');
         setReceiptFooterText(configMap.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา');
+        setBankQrImageUrl(configMap.BANK_QR_IMAGE_URL || '');
         setShowPrintLineQr(configMap.SHOW_PRINT_LINE_QR !== 'false');
         setLineQrImageUrl(configMap.LINE_QR_IMAGE_URL || '');
       }
@@ -962,6 +965,27 @@ export default function AdminCondoApp() {
     }
   };
 
+  const handleUploadBankQrImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingBankQr(true);
+      const ext = file.name.split('.').pop() || 'png';
+      const path = `bank-qr/bank_qr_${Date.now()}.${ext}`;
+      const { data, error } = await supabase.storage.from('slips').upload(path, file, {
+        cacheControl: '3600',
+        upsert: true,
+      });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage.from('slips').getPublicUrl(data.path);
+      setBankQrImageUrl(urlData.publicUrl);
+    } catch (err: any) {
+      alert('เกิดข้อผิดพลาดในการอัปโหลดรูป QR Code โอนเงิน: ' + err.message);
+    } finally {
+      setIsUploadingBankQr(false);
+    }
+  };
+
   const handleUploadLineQrImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -994,6 +1018,7 @@ export default function AdminCondoApp() {
         { key: 'BANK_NAME', value: bankName },
         { key: 'BANK_ACCOUNT_NO', value: bankAccNo },
         { key: 'BANK_ACCOUNT_NAME', value: bankAccName },
+        { key: 'BANK_QR_IMAGE_URL', value: bankQrImageUrl },
         { key: 'BILL_DUE_DAY', value: dueDay },
         { key: 'CURRENT_BILLING_PERIOD', value: staffActivePeriod },
         { key: 'LINE_CHANNEL_SECRET', value: lineSecret },
@@ -1019,6 +1044,7 @@ export default function AdminCondoApp() {
         BANK_NAME: bankName,
         BANK_ACCOUNT_NO: bankAccNo,
         BANK_ACCOUNT_NAME: bankAccName,
+        BANK_QR_IMAGE_URL: bankQrImageUrl,
         BILL_DUE_DAY: dueDay,
         CURRENT_BILLING_PERIOD: staffActivePeriod,
         LINE_CHANNEL_SECRET: lineSecret,
@@ -3683,7 +3709,73 @@ export default function AdminCondoApp() {
                     </p>
                   </div>
 
-                  {/* 2. Print LINE QR Code */}
+                  {/* 2. Bank Transfer QR Code for Printed Bills */}
+                  <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-3">
+                    <div>
+                      <h4 className="text-slate-800 font-bold text-xs flex items-center gap-2">
+                        <span>🏦</span>
+                        <span>รูปภาพ QR Code โอนเงิน / บัญชีธนาคาร (Bank Transfer QR Code) สำหรับพิมพ์ลงบิล</span>
+                      </h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        * หากไม่อัปโหลดรูป QR Code โอนเงิน ระบบจะไม่แสดง QR Code โอนเงินในบิลตอนพิมพ์ (ไม่มีกล่องว่างหรือสัญลักษณ์ตกค้าง)
+                      </p>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200 space-y-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        {bankQrImageUrl ? (
+                          <div className="relative border-2 border-slate-300 rounded-lg p-1 bg-white shrink-0">
+                            <img
+                              src={bankQrImageUrl}
+                              alt="Bank Transfer QR Code"
+                              className="w-20 h-20 object-contain"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setBankQrImageUrl('')}
+                              className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shadow"
+                              title="ลบรูป QR Code โอนเงิน"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="w-20 h-20 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 text-[10px] bg-white shrink-0">
+                            <span>🏦 ไม่มีรูป</span>
+                            <span>QR โอนเงิน</span>
+                          </div>
+                        )}
+
+                        <div className="flex-1 space-y-2 min-w-[200px]">
+                          <div className="flex items-center gap-2">
+                            <label className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer shadow-xs flex items-center gap-1.5 transition">
+                              <span>📁</span>
+                              <span>{isUploadingBankQr ? 'กำลังอัปโหลด...' : 'เลือกรูป QR โอนเงินจากเครื่อง'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                disabled={isUploadingBankQr}
+                                onChange={handleUploadBankQrImage}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                          <input
+                            type="text"
+                            value={bankQrImageUrl}
+                            onChange={(e) => setBankQrImageUrl(e.target.value)}
+                            placeholder="หรือวาง URL รูปภาพ QR Code โอนเงิน..."
+                            className="w-full border rounded-lg p-2 font-mono text-[11px] bg-white"
+                          />
+                          <p className="text-[10px] text-slate-500">
+                            รูปภาพ QR โค้ดบัญชีธนาคาร หรือ QR พร้อมเพย์ของนิติบุคคล สำหรับให้ลูกบ้านสแกนโอนเงิน
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Print LINE QR Code */}
                   <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl space-y-3">
                     <div className="flex items-center justify-between">
                       <div>

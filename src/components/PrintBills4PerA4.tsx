@@ -259,6 +259,9 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                     : 'โอนเงินเข้าบัญชีธนาคาร (Bank Transfer)';
                 const showLineQr = config.SHOW_PRINT_LINE_QR !== 'false';
                 const lineQrUrl = config.LINE_QR_IMAGE_URL || '';
+                const bankQrUrl = config.BANK_QR_IMAGE_URL || '';
+                const hasBankQr = !!bankQrUrl;
+                const hasLineQr = showLineQr && !!lineQrUrl;
                 const receiptFooterText = config.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา';
 
                 return (
@@ -417,38 +420,39 @@ export const PrintBills4PerA4: React.FC<PrintBillsProps> = ({
                         </div>
                       ) : (
                         <div className="flex gap-2 items-center bg-white p-1 rounded border border-black text-black">
-                          {/* PromptPay QR */}
-                          <div className="flex flex-col items-center shrink-0">
-                            {qrUrl ? (
+                          {/* 1. Bank Payment QR (ONLY if user uploaded bank QR image) */}
+                          {hasBankQr && (
+                            <div className="flex flex-col items-center shrink-0">
                               <img
-                                src={qrUrl}
-                                alt="PromptPay QR"
-                                className={`${showLineQr && lineQrUrl ? 'w-14 h-14' : 'w-16 h-16'} border border-black rounded bg-white p-0.5 object-contain`}
+                                src={bankQrUrl}
+                                alt="Bank Transfer QR"
+                                className={`${hasLineQr ? 'w-16 h-16' : 'w-22 h-22'} border border-black rounded bg-white p-0.5 object-contain`}
                               />
-                            ) : (
-                              <div
-                                className={`${showLineQr && lineQrUrl ? 'w-14 h-14' : 'w-16 h-16'} border border-black rounded bg-neutral-100 flex items-center justify-center text-[8px] text-black text-center`}
-                              >
-                                QR พร้อมเพย์
-                              </div>
-                            )}
-                            <span className="text-[7.5px] font-bold mt-0.5">PromptPay</span>
-                          </div>
+                              <span className="text-[7.5px] font-bold mt-0.5">QR โอนเงิน</span>
+                            </div>
+                          )}
 
-                          {/* LINE OA QR Code (If enabled) */}
-                          {showLineQr && lineQrUrl && (
+                          {/* 2. LINE OA QR Code (If enabled and uploaded) */}
+                          {hasLineQr && (
                             <div className="flex flex-col items-center shrink-0">
                               <img
                                 src={lineQrUrl}
                                 alt="LINE OA QR"
-                                className="w-14 h-14 border border-black rounded bg-white p-0.5 object-contain"
+                                className={`${hasBankQr ? 'w-16 h-16' : 'w-22 h-22'} border border-black rounded bg-white p-0.5 object-contain`}
                               />
                               <span className="text-[7.5px] font-bold mt-0.5">LINE OA</span>
                             </div>
                           )}
 
+                          {/* Bank details & instructions */}
                           <div className="text-[9.5px] leading-tight flex-1 text-black min-w-0">
-                            <div className="font-bold truncate">สแกนจ่าย / พร้อมเพย์ QR</div>
+                            <div className="font-bold truncate">
+                              {hasBankQr
+                                ? 'สแกนจ่าย / พร้อมเพย์ QR'
+                                : hasLineQr
+                                ? 'แอดไลน์แจ้งสลิป / ส่งหลักฐาน'
+                                : 'ช่องทางโอนชำระเงิน'}
+                            </div>
                             <div className="truncate">โอน: {bankName}</div>
                             <div className="font-mono font-bold truncate">{bankAccNo}</div>
                             <div className="truncate">{bankAccName}</div>

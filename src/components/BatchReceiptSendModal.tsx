@@ -5,7 +5,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Room, MeterLog, CondoConfig } from '@/types/condo';
-import { formatRoomNo, calculateBill, generateReceiptNo } from '@/utils/billing';
+import { formatRoomNo, calculateBill, generateReceiptNo, getPrintableCustomItems } from '@/utils/billing';
 import { createClient } from '@/utils/supabase/client';
 import { toPng } from 'html-to-image';
 
@@ -144,10 +144,11 @@ export const BatchReceiptSendModal: React.FC<BatchReceiptSendModalProps> = ({
           throw new Error('Receipt DOM element not ready');
         }
 
-        // 2. Render DOM to PNG dataUrl
+        // 2. Render DOM to PNG dataUrl (Retina 2.5x for crystal-clear mobile viewing)
         const dataUrl = await toPng(hiddenReceiptRef.current, {
           cacheBust: true,
-          quality: 0.95,
+          pixelRatio: 2.5,
+          quality: 1,
           backgroundColor: '#ffffff',
         });
 
@@ -498,8 +499,8 @@ export const BatchReceiptSendModal: React.FC<BatchReceiptSendModalProps> = ({
           </div>
         </div>
 
-        {/* HIDDEN OFFSCREEN RECEIPT COMPONENT FOR toPng RENDERING */}
-        <div style={{ position: 'absolute', left: '-9999px', top: '-9999px', width: '380px' }}>
+        {/* HIDDEN OFFSCREEN RECEIPT COMPONENT FOR toPng RENDERING (Official Web Layout, High DPI) */}
+        <div style={{ position: 'absolute', left: '-9999px', top: '-9999px', width: '560px' }}>
           {renderRoom && (() => {
             const rLog = logMap[renderRoom.room_no];
             const rPrevM = rLog ? Number(rLog.prev_meter) : Number(renderRoom.latest_meter) || 0;
@@ -520,119 +521,138 @@ export const BatchReceiptSendModal: React.FC<BatchReceiptSendModalProps> = ({
               rLog?.paid_type === 'cash' || rLog?.paid_type === 'เงินสด'
                 ? 'เงินสด (Cash)'
                 : 'โอนเงินเข้าบัญชีธนาคาร (Bank Transfer)';
+            const rCustomItems = getPrintableCustomItems(rBill.special_items_note, rBill.special_items);
+            const rPaidDateStr = rLog?.paid_timestamp
+              ? new Date(rLog.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
+              : new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' });
 
             return (
               <div
                 ref={hiddenReceiptRef}
-                className="bg-white border-2 border-slate-900 rounded-xl p-4 text-black text-xs space-y-2 shadow-xs"
+                style={{ width: '540px' }}
+                className="bg-white border-2 border-black rounded-lg p-5 text-black text-xs space-y-2.5 shadow-sm"
               >
-                {/* Receipt Header */}
-                <div className="text-center border-b border-black pb-2">
-                  <div className="font-extrabold text-sm text-black">{condoName}</div>
-                  <div className="text-[11px] font-bold text-black mt-0.5">
-                    ใบเสร็จรับเงิน / RECEIPT
+                {/* Header (Matching Official Web Printout) */}
+                <div className="flex justify-between items-start border-b-2 border-black pb-2 mb-2">
+                  <div>
+                    <div className="font-bold text-base text-black">{condoName}</div>
+                    <div className="text-[12px] font-bold text-black mt-0.5">
+                      ใบเสร็จรับเงิน / RECEIPT
+                    </div>
                   </div>
-                  <div className="text-[10px] text-neutral-600 font-mono mt-0.5">
-                    เลขที่ / No: {rReceiptNo} • รอบบิล / Period: {period}
+                  <div className="text-right">
+                    <div className="font-extrabold text-black text-base border-2 border-black px-2.5 py-0.5 rounded bg-neutral-100 inline-block font-mono">
+                      ห้อง / Room {formatRoomNo(renderRoom.room_no)}
+                    </div>
+                    <div className="text-[11px] text-neutral-800 mt-1 font-mono">
+                      เลขที่ / No: {rReceiptNo}
+                    </div>
                   </div>
                 </div>
 
-                {/* Room & Payer Info */}
-                <div className="grid grid-cols-2 gap-2 text-[11px] py-1 border-b border-neutral-300">
+                {/* Period & Paid Date */}
+                <div className="flex justify-between border border-black bg-neutral-100 px-3 py-1.5 rounded mb-2 text-xs text-black">
                   <div>
-                    <span className="text-neutral-500 block text-[9.5px]">ห้องชุด / Room</span>
-                    <span className="font-mono font-bold text-sm">{formatRoomNo(renderRoom.room_no)}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-neutral-500 block text-[9.5px]">วันที่รับชำระ / Date</span>
-                    <span className="font-mono font-semibold">
-                      {rLog?.paid_timestamp
-                        ? new Date(rLog.paid_timestamp).toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })
-                        : new Date().toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok' })}
-                    </span>
+                    <span>รอบบิล / Period: </span>
+                    <span className="font-bold">{period}</span>
                   </div>
                   <div>
-                    <span className="text-neutral-500 block text-[9.5px]">เจ้าของร่วม / Name</span>
-                    <span className="font-medium truncate block">
-                      {renderRoom.owner_name || renderRoom.tenant_name || 'ท่านเจ้าของร่วม'}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-neutral-500 block text-[9.5px]">วิธีชำระ / Method</span>
-                    <span className="font-semibold text-[10px]">{rPaidMethod}</span>
+                    <span>วันที่ชำระ / Paid Date: </span>
+                    <span className="font-bold underline">{rPaidDateStr}</span>
                   </div>
                 </div>
 
                 {/* Meter Info Box */}
-                <div className="flex justify-between items-center bg-neutral-100 border border-neutral-300 rounded px-2 py-1 text-[10px] text-neutral-800">
-                  <span>
-                    เลขมิเตอร์น้ำ / Water Meter: <b>{rBill.curr_meter}</b>{' '}
-                    <span className="text-neutral-500 font-normal">(ก่อนหน้า: {rBill.prev_meter})</span>
-                  </span>
-                  <span className="font-bold text-black">
-                    ใช้น้ำ: {rBill.units_used} หน่วย (Units)
-                  </span>
+                <div className="border border-black rounded p-2 mb-2 bg-white text-xs text-black">
+                  <div className="flex justify-between items-center">
+                    <span>
+                      เลขมิเตอร์น้ำ / Meter: <b>{rBill.prev_meter} ➔ {rBill.curr_meter}</b>
+                    </span>
+                    <span className="font-bold">ใช้น้ำ / Used: {rBill.units_used} หน่วย (Units)</span>
+                  </div>
                 </div>
 
-                {/* Items Table */}
-                <div className="space-y-1 py-1 text-[10.5px]">
-                  <div className="flex justify-between py-0.5">
-                    <span>1. ค่าน้ำประปา / Water ({rBill.units_used} units @ 35 ฿)</span>
-                    <span className="font-mono font-semibold">{rBill.water_amount.toLocaleString()} ฿</span>
+                {/* Calculation Breakdown Table */}
+                <table className="w-full text-xs mb-2 text-black border-collapse">
+                  <tbody>
+                    <tr className="border-b border-neutral-300">
+                      <td className="py-1">1. ค่าน้ำประปา / Water Supply ({rBill.units_used} Units × {rBill.water_rate} ฿)</td>
+                      <td className="text-right font-mono font-medium">{rBill.water_amount.toFixed(2)}</td>
+                    </tr>
+                    <tr className="border-b border-neutral-300">
+                      <td className="py-1">2. ค่าบำบัดน้ำเสีย / Wastewater ({rBill.units_used} Units × {rBill.wastewater_rate} ฿)</td>
+                      <td className="text-right font-mono font-medium">{rBill.wastewater_amount.toFixed(2)}</td>
+                    </tr>
+                    <tr className="border-b border-neutral-300">
+                      <td className="py-1">3. ค่าส่วนกลาง / Common Area Fee</td>
+                      <td className="text-right font-mono font-medium">{rBill.common_fee.toFixed(2)}</td>
+                    </tr>
+                    {rCustomItems.map((cItem, cIdx) => (
+                      <tr key={cIdx} className="border-b border-neutral-300 font-semibold">
+                        <td className="py-1">{cIdx + 4}. {cItem.label}</td>
+                        <td className="text-right font-mono">{cItem.amount > 0 ? `+${cItem.amount.toFixed(2)}` : cItem.amount.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    {rBill.late_fee > 0 && (
+                      <tr className="border-b border-neutral-300 font-semibold text-rose-800">
+                        <td className="py-1">เบี้ยปรับชำระล่าช้า / Late Payment Fee</td>
+                        <td className="text-right font-mono">+{rBill.late_fee.toFixed(2)}</td>
+                      </tr>
+                    )}
+                    {rBill.contribution_deducted > 0 && (
+                      <tr className="border-b border-neutral-300 font-semibold text-blue-800">
+                        <td className="py-1">★ หักเครดิตสมทบทุน / Fund Credit</td>
+                        <td className="text-right font-mono">-{rBill.contribution_deducted.toFixed(2)}</td>
+                      </tr>
+                    )}
+                    {rBill.prepaid_deducted > 0 && (
+                      <tr className="border-b border-neutral-300 font-semibold text-emerald-800">
+                        <td className="py-1">★ หักเงินฝากล่วงหน้า / Prepaid Deposit</td>
+                        <td className="text-right font-mono">-{rBill.prepaid_deducted.toFixed(2)}</td>
+                      </tr>
+                    )}
+                    {rBill.outstanding_balance > 0 && (
+                      <tr className="border-b border-neutral-300 font-bold text-amber-900">
+                        <td className="py-1">ค้างชำระยกมา / Outstanding Balance</td>
+                        <td className="text-right font-mono">+{rBill.outstanding_balance.toFixed(2)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+
+                {/* Total Received Box */}
+                <div className="border-2 border-black bg-neutral-100 text-black p-2.5 rounded flex justify-between items-center mb-2">
+                  <div>
+                    <div className="text-xs font-bold text-black">ยอดรับชำระสุทธิ</div>
+                    <div className="text-[10px] font-semibold text-neutral-700">TOTAL RECEIVED</div>
                   </div>
-                  <div className="flex justify-between py-0.5">
-                    <span>2. ค่าบำบัดน้ำเสีย / Wastewater ({rBill.units_used} units @ 5 ฿)</span>
-                    <span className="font-mono font-semibold">{rBill.wastewater_amount.toLocaleString()} ฿</span>
+                  <div className="text-right">
+                    <span className="text-xl font-extrabold text-black font-mono">
+                      {rBill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                    </span>
+                    <span className="text-xs font-bold text-black ml-1.5">บาท/THB</span>
                   </div>
-                  <div className="flex justify-between py-0.5">
-                    <span>3. ค่าส่วนกลาง / Common Area Fee</span>
-                    <span className="font-mono font-semibold">{rBill.common_fee.toLocaleString()} ฿</span>
-                  </div>
-                  {rBill.late_fee > 0 && (
-                    <div className="flex justify-between py-0.5 text-rose-700 font-semibold">
-                      <span>4. เบี้ยปรับชำระล่าช้า / Late Fee</span>
-                      <span className="font-mono">+{rBill.late_fee.toLocaleString()} ฿</span>
-                    </div>
-                  )}
-                  {rBill.special_items !== 0 && (
-                    <div className="flex justify-between py-0.5">
-                      <span>5. รายการพิเศษ / Extra ({rBill.special_items_note || '-'})</span>
-                      <span className="font-mono font-semibold">
-                        {rBill.special_items > 0 ? '+' : ''}{rBill.special_items.toLocaleString()} ฿
-                      </span>
-                    </div>
-                  )}
-                  {rBill.contribution_deducted > 0 && (
-                    <div className="flex justify-between py-0.5 text-blue-700">
-                      <span>• หักเครดิตสมทบทุน / Fund Credit</span>
-                      <span className="font-mono">-{rBill.contribution_deducted.toLocaleString()} ฿</span>
-                    </div>
-                  )}
-                  {rBill.prepaid_deducted > 0 && (
-                    <div className="flex justify-between py-0.5 text-emerald-700">
-                      <span>• หักเงินฝากล่วงหน้า / Prepaid Deposit</span>
-                      <span className="font-mono">-{rBill.prepaid_deducted.toLocaleString()} ฿</span>
-                    </div>
-                  )}
-                  {rBill.outstanding_balance > 0 && (
-                    <div className="flex justify-between py-0.5 text-amber-800">
-                      <span>• ยอดค้างชำระยกมา / Outstanding Balance</span>
-                      <span className="font-mono">+{rBill.outstanding_balance.toLocaleString()} ฿</span>
-                    </div>
-                  )}
                 </div>
 
-                {/* Total Row */}
-                <div className="border-t-2 border-black pt-1.5 flex justify-between items-center text-sm font-extrabold">
-                  <span>ยอดเงินที่รับชำระทั้งสิ้น / TOTAL RECEIVED</span>
-                  <span className="font-mono text-emerald-800">
-                    {rBill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท (THB)
-                  </span>
+                {/* Paid Status & Signature */}
+                <div className="bg-white border border-black p-2.5 rounded text-xs text-black flex justify-between items-center">
+                  <div className="space-y-1">
+                    <div className="font-bold text-black">
+                      ✓ ได้รับชำระเงินเรียบร้อยแล้ว / Paid Successfully {rLog?.is_late_payment ? '(ชำระล่าช้า / Late)' : '(ตรงตามกำหนด / On Time)'}
+                    </div>
+                    <div className="text-neutral-800">
+                      รับชำระโดย / Paid by: <b className="underline">{rPaidMethod}</b>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[11px] text-neutral-700">ผู้รับเงิน / Authorized Signature</div>
+                    <div className="font-bold text-black mt-1.5">________________</div>
+                  </div>
                 </div>
 
-                {/* Receipt Footer */}
-                <div className="text-[9.5px] text-center text-neutral-500 pt-1 border-t border-neutral-300">
-                  {config.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา'}
+                {/* Notes / Footer */}
+                <div className="mt-1 text-[11px] text-black text-center border-t border-neutral-300 pt-1">
+                  <div>{config.RECEIPT_FOOTER_TEXT || 'ออกแบบใบเสร็จรับเงิน ออกโดย วชิรดา'}</div>
                 </div>
               </div>
             );
