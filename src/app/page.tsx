@@ -28,6 +28,7 @@ import { BatchReceiptSendModal } from '@/components/BatchReceiptSendModal';
 import { LineSystemMessageEditor } from '@/components/LineSystemMessageEditor';
 import { BatchDeductionModal } from '@/components/BatchDeductionModal';
 import { ConsolidatedBillPreviewModal } from '@/components/ConsolidatedBillPreviewModal';
+import { AdminLineLinkModal, LineRecentUser } from '@/components/AdminLineLinkModal';
 
 const THAI_MONTHS = [
   { num: '01', label: '01 - มกราคม' },
@@ -138,6 +139,14 @@ export default function AdminCondoApp() {
   const [testLineCode, setTestLineCode] = useState('');
   const [testLineResult, setTestLineResult] = useState<{ match: boolean; message: string } | null>(null);
 
+  // Admin-Assisted LINE Linker States (v2.21)
+  const [recentLineUsers, setRecentLineUsers] = useState<LineRecentUser[]>([]);
+  const [linkingUser, setLinkingUser] = useState<LineRecentUser | null>(null);
+  const [preselectedRoomForLink, setPreselectedRoomForLink] = useState<string>('');
+  const [isLinkingRoom, setIsLinkingRoom] = useState(false);
+  const [recentUserFilter, setRecentUserFilter] = useState<'unlinked' | 'all'>('unlinked');
+  const [isRefreshingRecentUsers, setIsRefreshingRecentUsers] = useState(false);
+
   // Settings form (Tab 7)
   const [waterRate, setWaterRate] = useState('35');
   const [wastewaterRate, setWastewaterRate] = useState('5');
@@ -238,12 +247,49 @@ export default function AdminCondoApp() {
         .select('*')
         .order('sort_order', { ascending: true });
       if (rulesData) setLineRules(rulesData as LineAutoReplyRule[]);
+
+      // Fetch recent LINE users for Admin-Assisted registration (v2.21)
+      const { data: recentUsers } = await supabase
+        .from('line_recent_users')
+        .select('*')
+        .order('last_seen_at', { ascending: false })
+        .limit(50);
+      if (recentUsers) setRecentLineUsers(recentUsers as LineRecentUser[]);
     } catch (err) {
       console.error('Fetch error:', err);
     } finally {
       setLoading(false);
     }
   };
+
+  const fetchRecentLineUsers = async () => {
+    setIsRefreshingRecentUsers(true);
+    try {
+      const { data: recentUsers } = await supabase
+        .from('line_recent_users')
+        .select('*')
+        .order('last_seen_at', { ascending: false })
+        .limit(50);
+      if (recentUsers) setRecentLineUsers(recentUsers as LineRecentUser[]);
+    } catch (e) {
+      console.error('fetchRecentLineUsers error:', e);
+    } finally {
+      setIsRefreshingRecentUsers(false);
+    }
+  };
+
+  const unlinkedRecentUsers = useMemo(() => {
+    return recentLineUsers.filter(
+      (u) => !rooms.some((r) => r.line_user_id === u.line_user_id)
+    );
+  }, [recentLineUsers, rooms]);
+
+  const displayedRecentUsers = useMemo(() => {
+    if (recentUserFilter === 'unlinked') {
+      return unlinkedRecentUsers;
+    }
+    return recentLineUsers;
+  }, [recentUserFilter, unlinkedRecentUsers, recentLineUsers]);
 
   useEffect(() => {
     fetchData();
@@ -837,6 +883,92 @@ export default function AdminCondoApp() {
     }
   };
 
+  const handleAdminLinkLine = async (
+    targetUser: LineRecentUser,
+    targetRoomNo: string,
+    sendWelcomePush: boolean = true
+  ) => {
+    if (!targetUser || !targetRoomNo) {
+      alert('กรุณาเลือกห้องที่ต้องการผูก');
+      return;
+    }
+    const targetRoom = rooms.find((r) => r.room_no === targetRoomNo);
+    if (!targetRoom) {
+      alert('ไม่พบข้อมูลห้องที่เลือก');
+      return;
+    }
+
+    const currentLinked = targetRoom.line_user_id;
+    if (currentLinked && currentLinked !== targetUser.line_user_id) {
+      const confirmOverwrite = window.confirm(
+        `⚠️ ห้อง ${formatRoomNo(targetRoomNo)} มีการผูก LINE ไว้อยู่แล้ว!\n\nคุณต้องการเปลี่ยนผู้รับข้อมูลของห้องนี้เป็นคุณ "${targetUser.display_name || 'ลูกบ้าน'}" หรือไม่?`
+      );
+      if (!confirmOverwrite) return;
+    }
+
+    setIsLinkingRoom(true);
+    try {
+      // 1. Update rooms table
+      const { error: updateErr } = await supabase
+        .from('rooms')
+        .update({
+          line_user_id: targetUser.line_user_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('room_no', targetRoomNo);
+
+      if (updateErr) throw updateErr;
+
+      // 2. Clean up any pending registration state in condo_config
+      await supabase
+        .from('condo_config')
+        .delete()
+        .in('key', [
+          `LINE_REG_STATE_${targetUser.line_user_id}`,
+          `LINE_REG_STATE_OWNER_${targetUser.line_user_id}`,
+        ]);
+
+      // 3. Send welcome push message if enabled
+      if (sendWelcomePush) {
+        try {
+          const welcomeMsg = `🎉 ยินดีต้อนรับค่ะคุณ ${targetUser.display_name || ''}!\n\nแอดมินนิติคอนโดได้ดำเนินการผูกบัญชี LINE ของท่านเข้ากับห้อง "${formatRoomNo(targetRoomNo)}" เรียบร้อยแล้วค่ะ ✅\n\n📌 จากนี้ไปท่านสามารถ:\n- ดูบิลค่าน้ำและค่าส่วนกลางผ่าน LINE ได้ทันที\n- รับการแจ้งเตือนยอดชำระประจำเดือน\n- ส่งสลิปโอนเงินผ่านห้องแชทนี้ได้เลยค่ะ\n\n(หากต้องการสอบถามเพิ่มเติม พิมพ์ข้อความทิ้งไว้ได้เลยนะคะ ทางนิติจะรีบตอบกลับค่ะ)`;
+
+          await fetch('/api/line/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: targetUser.line_user_id,
+              messages: [{ type: 'text', text: welcomeMsg }],
+            }),
+          });
+        } catch (pushErr) {
+          console.warn('Welcome push notification notice:', pushErr);
+        }
+      }
+
+      // 4. Update local state
+      setRooms((prev) =>
+        prev.map((r) =>
+          r.room_no === targetRoomNo
+            ? { ...r, line_user_id: targetUser.line_user_id }
+            : r
+        )
+      );
+
+      // 5. Refresh recent users list
+      await fetchRecentLineUsers();
+
+      alert(`✅ ผูกห้อง ${formatRoomNo(targetRoomNo)} กับ LINE คุณ "${targetUser.display_name || 'ลูกบ้าน'}" สำเร็จเรียบร้อยแล้วค่ะ!`);
+      setLinkingUser(null);
+      setPreselectedRoomForLink('');
+    } catch (err: any) {
+      console.error('Link LINE error:', err);
+      alert('เกิดข้อผิดพลาดในการผูกห้อง: ' + err.message);
+    } finally {
+      setIsLinkingRoom(false);
+    }
+  };
+
   const handleSaveLineRule = async () => {
     const rawBubbles = Array.isArray(editingRule?.reply_bubbles) && editingRule.reply_bubbles.length > 0
       ? editingRule.reply_bubbles.map((b) => b.trim()).filter(Boolean)
@@ -1170,7 +1302,7 @@ export default function AdminCondoApp() {
               <h1 className="text-sm font-bold text-slate-100 flex items-center gap-2">
                 <span>{config.CONDO_NAME || 'สมบูรณ์คอนโดทาวน์'}</span>
                 <span className="text-[10px] bg-slate-800 text-sky-300 px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                  ระบบบริหารนิติบุคคล v2.14
+                  ระบบบริหารนิติบุคคล v2.21
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
@@ -3239,7 +3371,7 @@ export default function AdminCondoApp() {
                     >
                       <span>💬 ส่วนที่ 3: จัดการข้อความในระบบ (Studio)</span>
                       <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-[10px] font-bold">
-                        10 ข้อความระบบ • รูปภาพ • ไฟล์ PDF
+                        18 ข้อความระบบ • รูปภาพ • ไฟล์ PDF
                       </span>
                     </button>
                   </div>
@@ -3251,7 +3383,185 @@ export default function AdminCondoApp() {
 
                 {/* SECTION 1: Rooms Registration & Unlink */}
                 {lineSubTab === 'rooms' && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-xs">
+                  <div className="space-y-4">
+                    {/* ADMIN-ASSISTED ONE-CLICK LINE LINKER */}
+                    <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 text-white rounded-3xl p-5 border border-emerald-500/30 shadow-lg space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 pb-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl p-2 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
+                            🔗
+                          </span>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-sm sm:text-base text-emerald-300">
+                                แอดมินช่วยผูกห้อง LINE ให้ลูกบ้าน (Admin-Assisted 1-Click Linking)
+                              </h3>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
+                                ฟีเจอร์ใหม่ v2.21
+                              </span>
+                            </div>
+                            <p className="text-slate-300 text-xs mt-0.5">
+                              สำหรับลูกบ้านที่แอดไลน์เข้ามาแล้วแต่ลงทะเบียนไม่เป็น แอดมินสามารถกด &quot;🔗 ผูกห้องให้ท่านนี้&quot; เพื่อเลือกห้องและส่งข้อความต้อนรับเข้า LINE ทันที
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={fetchRecentLineUsers}
+                            disabled={isRefreshingRecentUsers}
+                            className="px-3 py-1.5 bg-slate-700/80 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                          >
+                            <span className={isRefreshingRecentUsers ? 'animate-spin' : ''}>🔄</span>
+                            รีเฟรชรายชื่อ
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Filter Bar & Counters */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-1.5 bg-slate-800/80 p-1 rounded-2xl border border-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => setRecentUserFilter('unlinked')}
+                            className={`px-3 py-1 rounded-xl font-bold transition flex items-center gap-1.5 ${
+                              recentUserFilter === 'unlinked'
+                                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                                : 'text-slate-300 hover:text-white'
+                            }`}
+                          >
+                            <span>⏳ รอแอดมินช่วยผูกห้อง</span>
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">
+                              {unlinkedRecentUsers.length}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRecentUserFilter('all')}
+                            className={`px-3 py-1 rounded-xl font-bold transition flex items-center gap-1.5 ${
+                              recentUserFilter === 'all'
+                                ? 'bg-emerald-600 text-white shadow-sm'
+                                : 'text-slate-300 hover:text-white'
+                            }`}
+                          >
+                            <span>📋 ทั้งหมด</span>
+                            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/20">
+                              {recentLineUsers.length}
+                            </span>
+                          </button>
+                        </div>
+
+                        <div className="text-slate-400 text-[11px] flex items-center gap-2">
+                          <span>💡 เมื่อลูกบ้านแอดไลน์หรือส่งข้อความเข้ามา จะปรากฏในรายการนี้อัตโนมัติ</span>
+                        </div>
+                      </div>
+
+                      {/* Users List Grid */}
+                      {displayedRecentUsers.length === 0 ? (
+                        <div className="bg-slate-800/40 border border-dashed border-slate-700 rounded-2xl p-6 text-center text-slate-400 space-y-1">
+                          <p className="font-semibold text-slate-300 text-xs">
+                            {recentUserFilter === 'unlinked'
+                              ? '✨ ขณะนี้ไม่มีลูกบ้านที่ค้างการผูกห้อง'
+                              : 'ยังไม่มีประวัติผู้ติดต่อผ่าน LINE OA'}
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            เมื่อมีลูกบ้านเพิ่มเพื่อนหรือพิมพ์ข้อความเข้ามาใน LINE OA รายชื่อ รูปโปรไฟล์ และข้อความล่าสุดจะแสดงตรงนี้ทันที
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {displayedRecentUsers.map((u) => {
+                            const linkedRoom = rooms.find((r) => r.line_user_id === u.line_user_id);
+                            const isLinked = !!linkedRoom;
+
+                            return (
+                              <div
+                                key={u.line_user_id}
+                                className={`rounded-2xl p-3.5 border transition space-y-2.5 flex flex-col justify-between ${
+                                  isLinked
+                                    ? 'bg-slate-800/60 border-slate-700 hover:border-slate-600'
+                                    : 'bg-emerald-950/40 border-emerald-500/40 hover:border-emerald-400 shadow-sm'
+                                }`}
+                              >
+                                <div className="space-y-2">
+                                  <div className="flex items-start gap-2.5">
+                                    {u.picture_url ? (
+                                      <img
+                                        src={u.picture_url}
+                                        alt={u.display_name || 'LINE'}
+                                        className="w-10 h-10 rounded-full border border-slate-600 object-cover shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-full bg-emerald-700/50 text-emerald-200 flex items-center justify-center font-bold text-base shrink-0 border border-emerald-500/30">
+                                        {(u.display_name || 'U').charAt(0).toUpperCase()}
+                                      </div>
+                                    )}
+
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center justify-between gap-1">
+                                        <h4 className="font-bold text-white text-xs truncate">
+                                          {u.display_name || 'ไม่ระบุชื่อ'}
+                                        </h4>
+                                        <span
+                                          className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold shrink-0 ${
+                                            isLinked
+                                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse'
+                                          }`}
+                                        >
+                                          {isLinked ? `ห้อง ${formatRoomNo(linkedRoom.room_no)}` : 'รอผูกห้อง'}
+                                        </span>
+                                      </div>
+                                      <p className="font-mono text-[9px] text-slate-400 truncate">
+                                        {u.line_user_id}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {u.last_message && (
+                                    <div className="bg-slate-900/70 border border-slate-700/60 rounded-xl px-2.5 py-1.5 text-[11px] text-slate-300 line-clamp-2">
+                                      💬 &quot;{u.last_message}&quot;
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-700/50 text-[10px] text-slate-400">
+                                  <span>
+                                    {u.last_seen_at
+                                      ? new Date(u.last_seen_at).toLocaleTimeString('th-TH', {
+                                          hour: '2-digit',
+                                          minute: '2-digit',
+                                          day: 'numeric',
+                                          month: 'short',
+                                        })
+                                      : 'เพิ่งติดต่อ'}
+                                  </span>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLinkingUser(u);
+                                      setPreselectedRoomForLink(linkedRoom ? linkedRoom.room_no : '');
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition flex items-center gap-1 ${
+                                      isLinked
+                                        ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                                        : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold shadow-sm shadow-emerald-500/20'
+                                    }`}
+                                  >
+                                    <span>🔗</span>
+                                    <span>{isLinked ? 'สลับห้องที่ผูก' : 'ผูกห้องให้ท่านนี้'}</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden text-xs">
                     <div className="p-4 border-b flex flex-wrap justify-between items-center gap-3">
                       <div>
                         <h3 className="font-bold text-slate-800 text-sm">
@@ -3362,13 +3672,25 @@ export default function AdminCondoApp() {
                                   </td>
                                   <td className="py-2 px-3 text-center">
                                     <div className="flex items-center justify-center gap-1.5">
-                                      {isLinked && (
+                                      {isLinked ? (
                                         <button
                                           type="button"
                                           onClick={() => handleUnlinkLineRoom(room)}
                                           className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg font-bold text-[11px]"
                                         >
                                           🔓 ยกเลิกการผูก LINE
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setPreselectedRoomForLink(room.room_no);
+                                            const candidate = unlinkedRecentUsers[0] || recentLineUsers[0] || null;
+                                            setLinkingUser(candidate);
+                                          }}
+                                          className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg font-bold text-[11px]"
+                                        >
+                                          🔗 ผูก LINE
                                         </button>
                                       )}
                                       <button
@@ -3387,7 +3709,8 @@ export default function AdminCondoApp() {
                       </table>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
                 {/* SECTION 2: Keyword Rules & Auto-Reply Bot */}
                 {lineSubTab === 'keywords' && (
@@ -3923,7 +4246,7 @@ export default function AdminCondoApp() {
               <div className="max-w-2xl mx-auto bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4 text-xs">
                 <div className="border-b pb-3 flex items-center justify-between">
                   <div>
-                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.15)</h2>
+                    <h2 className="font-bold text-slate-800 text-base">ตั้งค่าระบบคอนโด 674 (v2.21)</h2>
                     <p className="text-slate-500">ปรับเปลี่ยนอัตราค่าน้ำ ค่าส่วนกลาง บัญชีธนาคาร LINE OA และรอบบิล</p>
                   </div>
                   <button
@@ -4816,6 +5139,22 @@ export default function AdminCondoApp() {
             handleOpenPrint('invoice', roomNos);
           }}
           isSendingLine={isPushingLine}
+        />
+      )}
+
+      {/* MODAL: ADMIN-ASSISTED ONE-CLICK LINE LINKER (v2.21) */}
+      {linkingUser && (
+        <AdminLineLinkModal
+          user={linkingUser}
+          availableUsers={recentLineUsers}
+          rooms={rooms}
+          preselectedRoomNo={preselectedRoomForLink}
+          onClose={() => {
+            setLinkingUser(null);
+            setPreselectedRoomForLink('');
+          }}
+          onLink={handleAdminLinkLine}
+          isLinking={isLinkingRoom}
         />
       )}
 

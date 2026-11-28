@@ -1,14 +1,15 @@
 'use client';
 
 // LINE OA System Messages Editor with Multi-Bubble, Image & PDF Document Support
-// Version 2.10 - Somboon Condo Town 674
+// Version 2.21 - 18 System Messages with Category Filters (Registration, Billing, Services)
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { CondoConfig } from '@/types/condo';
 import { createClient } from '@/utils/supabase/client';
 import {
   LineSystemBubble,
   LineMessageBubbleType,
+  LineTemplateCategory,
   DEFAULT_LINE_TEMPLATES,
   parseConfigToBubbles,
 } from '@/utils/lineTemplates';
@@ -26,6 +27,23 @@ export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = (
 
   // Active selected template key
   const [selectedKey, setSelectedKey] = useState<string>(templateKeys[0]);
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'registration' | 'billing' | 'info'>('all');
+  const [templateSearch, setTemplateSearch] = useState('');
+
+  const filteredTemplateKeys = useMemo(() => {
+    return templateKeys.filter((key) => {
+      const def = DEFAULT_LINE_TEMPLATES[key];
+      if (!def) return false;
+      const matchesCat = categoryFilter === 'all' || def.category === categoryFilter;
+      const q = templateSearch.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        def.title.toLowerCase().includes(q) ||
+        def.badge.toLowerCase().includes(q) ||
+        def.description.toLowerCase().includes(q);
+      return matchesCat && matchesSearch;
+    });
+  }, [templateKeys, categoryFilter, templateSearch]);
 
   // Master drafts: map of key -> LineSystemBubble[]
   const [draftsMap, setDraftsMap] = useState<Record<string, LineSystemBubble[]>>(() => {
@@ -258,41 +276,125 @@ export const LineSystemMessageEditor: React.FC<LineSystemMessageEditorProps> = (
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Left Column: Selector & Editor (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
-          {/* Step 1: Select Message Type Pills */}
-          <div className="space-y-1.5">
-            <label className="font-bold text-slate-700 block">
-              1. เลือกข้อความระบบที่ต้องการแก้ไข ({templateKeys.length} รายการ):
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {templateKeys.map((key) => {
-                const def = DEFAULT_LINE_TEMPLATES[key];
-                const isSelected = selectedKey === key;
-                const bubbleCount = (draftsMap[key] || def.defaultBubbles).length;
+          {/* Step 1: Select Message Type with Category Tabs & Search */}
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="font-bold text-slate-800 text-xs">
+                1. เลือกข้อความระบบที่ต้องการแก้ไข ({filteredTemplateKeys.length}/{templateKeys.length} รายการ):
+              </label>
+              <input
+                type="text"
+                placeholder="🔍 ค้นหาชื่อข้อความ..."
+                value={templateSearch}
+                onChange={(e) => setTemplateSearch(e.target.value)}
+                className="text-xs px-2.5 py-1 bg-white border border-slate-300 rounded-lg w-44 focus:ring-1 focus:ring-blue-500 outline-none"
+              />
+            </div>
 
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => {
-                      setSelectedKey(key);
-                      setActiveBubbleIndex(0);
-                    }}
-                    className={`text-left p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-1.5 ${
-                      isSelected
-                        ? 'bg-blue-50/80 border-blue-500 shadow-xs ring-1 ring-blue-400'
-                        : 'bg-white border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="font-bold text-[11px] text-slate-800">{def.badge}</span>
-                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md font-mono">
-                        {bubbleCount} บอลลูน
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-600 font-medium line-clamp-1">{def.title}</div>
-                  </button>
-                );
-              })}
+            {/* Category Filter Tabs */}
+            <div className="flex flex-wrap gap-1 p-1 bg-slate-100 rounded-xl text-xs font-bold text-slate-600">
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('all')}
+                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                  categoryFilter === 'all'
+                    ? 'bg-white text-blue-700 shadow-xs'
+                    : 'hover:bg-slate-200/70 text-slate-600'
+                }`}
+              >
+                ทั้งหมด ({templateKeys.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('registration')}
+                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                  categoryFilter === 'registration'
+                    ? 'bg-white text-blue-700 shadow-xs'
+                    : 'hover:bg-slate-200/70 text-slate-600'
+                }`}
+              >
+                📝 ลงทะเบียน (10)
+              </button>
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('billing')}
+                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                  categoryFilter === 'billing'
+                    ? 'bg-white text-purple-700 shadow-xs'
+                    : 'hover:bg-slate-200/70 text-slate-600'
+                }`}
+              >
+                🧾 บิล & สลิปโอน (4)
+              </button>
+              <button
+                type="button"
+                onClick={() => setCategoryFilter('info')}
+                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                  categoryFilter === 'info'
+                    ? 'bg-white text-emerald-700 shadow-xs'
+                    : 'hover:bg-slate-200/70 text-slate-600'
+                }`}
+              >
+                ℹ️ บริการ & ข้อมูล (4)
+              </button>
+            </div>
+
+            {/* Template Buttons Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[360px] overflow-y-auto p-0.5">
+              {filteredTemplateKeys.length === 0 ? (
+                <div className="sm:col-span-2 text-center p-6 text-slate-400 text-xs bg-slate-50 rounded-xl">
+                  ไม่พบข้อความที่ตรงกับการค้นหา
+                </div>
+              ) : (
+                filteredTemplateKeys.map((key) => {
+                  const def = DEFAULT_LINE_TEMPLATES[key];
+                  const isSelected = selectedKey === key;
+                  const bubbleCount = (draftsMap[key] || def.defaultBubbles).length;
+
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setSelectedKey(key);
+                        setActiveBubbleIndex(0);
+                      }}
+                      className={`text-left p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-1.5 cursor-pointer ${
+                        isSelected
+                          ? 'bg-blue-50/90 border-blue-500 shadow-xs ring-1 ring-blue-400'
+                          : 'bg-white border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-bold text-[11px] text-slate-800">{def.badge}</span>
+                        <div className="flex items-center gap-1">
+                          <span
+                            className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
+                              def.category === 'billing'
+                                ? 'bg-purple-100 text-purple-800'
+                                : def.category === 'info'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {def.category === 'billing'
+                              ? 'บิล/สลิป'
+                              : def.category === 'info'
+                              ? 'ข้อมูล'
+                              : 'ลงทะเบียน'}
+                          </span>
+                          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md font-mono">
+                            {bubbleCount} บอลลูน
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-[11px] text-slate-600 font-medium line-clamp-1">
+                        {def.title}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
 

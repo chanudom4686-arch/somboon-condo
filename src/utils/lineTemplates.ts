@@ -1,7 +1,9 @@
 // Helper utilities for LINE OA System Messages (Multi-bubble, Image, and PDF support)
-// Version 2.11 - Somboon Condo Town 674
+// Version 2.21 - 18 System Message Studio Templates across Onboarding, Billing, and Resident Services
 
 export type LineMessageBubbleType = 'text' | 'image' | 'pdf';
+
+export type LineTemplateCategory = 'registration' | 'billing' | 'info';
 
 export interface LineSystemBubble {
   id: string;
@@ -11,20 +13,24 @@ export interface LineSystemBubble {
   fileName?: string;
 }
 
+export interface LineTemplateDefinition {
+  title: string;
+  badge: string;
+  category: LineTemplateCategory;
+  description: string;
+  defaultBubbles: LineSystemBubble[];
+  allowedTags: Array<{ tag: string; label: string; desc: string }>;
+}
+
 // User-curated default messages preserved from Supabase condo_config
-export const DEFAULT_LINE_TEMPLATES: Record<
-  string,
-  {
-    title: string;
-    badge: string;
-    description: string;
-    defaultBubbles: LineSystemBubble[];
-    allowedTags: Array<{ tag: string; label: string; desc: string }>;
-  }
-> = {
+export const DEFAULT_LINE_TEMPLATES: Record<string, LineTemplateDefinition> = {
+  // ==========================================
+  // CATEGORY 1: REGISTRATION & ONBOARDING (10)
+  // ==========================================
   LINE_WELCOME_NEW_FRIEND: {
     title: 'ข้อความต้อนรับผู้ใช้ใหม่เมื่อกดเพิ่มเพื่อน (Follow Event)',
     badge: '👋 แอดไลน์ครั้งแรก',
+    category: 'registration',
     description: 'ข้อความแรกที่จะเด้งเข้าแชททันทีเมื่อมีคนกด Add Friend เข้ามาใน LINE OA คอนโด',
     defaultBubbles: [
       {
@@ -41,6 +47,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_REG_PROMPT_ROOM: {
     title: 'ขั้นตอนลงทะเบียน (1): เมื่อกดปุ่ม "ลงทะเบียน" แล้วบอทถามหาเลขห้อง',
     badge: '📝 เริ่มต้นลงทะเบียน',
+    category: 'registration',
     description: 'ส่งหาลูกบ้านทันทีที่กดปุ่ม "ลงทะเบียน" บนริชเมนู หรือพิมพ์คำว่า "ลงทะเบียน" เพื่อแนะนำให้พิมพ์เลขห้อง',
     defaultBubbles: [
       {
@@ -57,6 +64,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_REG_PROMPT_PHONE: {
     title: 'ขั้นตอนลงทะเบียน (2): เมื่อพิมพ์เลขห้องแล้วถามหาเบอร์ 4 ตัวท้าย',
     badge: '📱 ขอเบอร์ยืนยัน',
+    category: 'registration',
     description: 'ส่งหาลูกบ้านเพื่อยืนยันตัวตนตามหลักความปลอดภัย PDPA เมื่อลูกบ้านพิมพ์เลขห้องเข้ามา',
     defaultBubbles: [
       {
@@ -76,6 +84,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_REG_SUCCESS: {
     title: 'ขั้นตอนลงทะเบียน (3): เมื่อยืนยันเบอร์ถูกต้องและผูกห้องสำเร็จ',
     badge: '🎉 ผูกห้องสำเร็จ',
+    category: 'registration',
     description: 'ส่งแจ้งลูกบ้านทันทีที่ยืนยันเบอร์โทรศัพท์ 4 ตัวท้ายตรงกับข้อมูลในระบบ พร้อมแสดงเมนูคำสั่ง',
     defaultBubbles: [
       {
@@ -93,6 +102,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_REG_PHONE_ERROR: {
     title: 'ขั้นตอนลงทะเบียน: เมื่อพิมพ์เลข 4 ตัวท้ายไม่ตรง (Phone Mismatch)',
     badge: '❌ เบอร์ไม่ตรง',
+    category: 'registration',
     description: 'ส่งแจ้งเตือนเมื่อลูกบ้านกรอกเลข 4 ตัวท้ายไม่ตรงกับฐานข้อมูลของห้องชุดนั้นๆ',
     defaultBubbles: [
       {
@@ -109,6 +119,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_REG_ROOM_NOT_FOUND: {
     title: 'ขั้นตอนลงทะเบียน: เมื่อพิมพ์เลขห้องที่ไม่พบในระบบ (Room Not Found)',
     badge: '⚠️ ไม่พบเลขห้อง',
+    category: 'registration',
     description: 'ส่งแจ้งเตือนเมื่อลูกบ้านพิมพ์เลขห้องที่ไม่มีอยู่ในฐานข้อมูลคอนโด หรือพิมพ์รูปแบบผิด',
     defaultBubbles: [
       {
@@ -126,6 +137,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_REG_NO_PHONE_IN_ROOM: {
     title: 'ขั้นตอนลงทะเบียน: เมื่อพบห้องชุด แต่ห้องยังไม่มีเบอร์โทรในระบบ',
     badge: '📞 ห้องยังไม่มีเบอร์',
+    category: 'registration',
     description: 'ส่งแจ้งลูกบ้านเมื่อพบข้อมูลห้องในระบบ แต่ห้องนั้นยังไม่เคยมีเบอร์โทรศัพท์บันทึกไว้ เพื่อให้ลูกบ้านทิ้งเบอร์ไว้ให้แอดมิน',
     defaultBubbles: [
       {
@@ -143,6 +155,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_PDPA_WARNING: {
     title: 'แจ้งเตือนความปลอดภัย PDPA: ผู้ใช้ยังไม่ลงทะเบียนพยายามดูบิล',
     badge: '🔒 เตือนความปลอดภัย',
+    category: 'registration',
     description: 'ส่งแจ้งเตือนเมื่อมีคนพิมพ์ "ดูบิล", "ใบเสร็จ" หรือ "สเตทเมนท์" โดยที่บัญชี LINE ยังไม่ได้ผูกห้องชุด',
     defaultBubbles: [
       {
@@ -159,6 +172,7 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_UNLINK_SUCCESS: {
     title: 'ข้อความยืนยันเมื่อพิมพ์ "ยกเลิกผูกห้อง" (Unlink Complete)',
     badge: '🔓 ยกเลิกผูกห้อง',
+    category: 'registration',
     description: 'ส่งแจ้งยืนยันเมื่อลูกบ้านพิมพ์คำว่า "ยกเลิกผูกห้อง", "ยกเลิกลงทะเบียน" หรือ "unlink" และทำการปลดล็อคสำเร็จ',
     defaultBubbles: [
       {
@@ -176,12 +190,172 @@ export const DEFAULT_LINE_TEMPLATES: Record<
   LINE_UNLINK_NOT_LINKED: {
     title: 'ข้อความเมื่อพิมพ์ "ยกเลิกผูกห้อง" แต่ยังไม่เคยผูกห้องชุดใดๆ',
     badge: 'ℹ️ ยังไม่ได้ผูกห้อง',
+    category: 'registration',
     description: 'ส่งแจ้งลูกบ้านเมื่อพิมพ์คำว่า "ยกเลิกผูกห้อง" แต่บัญชี LINE นั้นยังไม่เคยมีประวัติผูกกับห้องใดในระบบ',
     defaultBubbles: [
       {
         id: '1',
         type: 'text',
         text: `ℹ️ บัญชี LINE ของคุณยังไม่ได้ผูกกับห้องชุดใดในระบบครับ\nYour LINE account is not linked to any room yet.\n\n📌 หากต้องการผูกห้องชุด:\nกดปุ่ม "ลงทะเบียน" ที่ริชเมนูด้านล่าง หรือพิมพ์ "ลงทะเบียน" / "Register" ได้เลยครับ\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: 12.00 - 24.00 น.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
+    ],
+  },
+
+  // ==========================================
+  // CATEGORY 2: BILLING, RECEIPTS & SLIPS (4)
+  // ==========================================
+  LINE_SLIP_RECEIVED: {
+    title: 'ข้อความตอบรับเมื่อลูกบ้านส่งรูปสลิปโอนเงิน (Slip Acknowledgement)',
+    badge: '📸 ยืนยันรับสลิป',
+    category: 'billing',
+    description: 'ส่งตอบกลับทันทีเมื่อลูกบ้านส่งรูปสลิปโอนเงินเข้ามาใน LINE OA เพื่อยืนยันว่าระบบได้รับหลักฐานแล้ว',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `📸 นิติบุคคลได้รับรูปสลิปการโอนเงินเรียบร้อยแล้วครับ ขอบพระคุณครับ 🙏\nWe have received your payment slip. Thank you!\n\nเจ้าหน้าที่กำลังดำเนินการตรวจสอบยอดเงิน และจะออกใบเสร็จรับเงินอย่างเป็นทางการส่งให้ในแชตนี้โดยเร็วครับ\nOur team is verifying your payment and will issue an official receipt in this chat shortly.\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: {admin_hours}`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
+    ],
+  },
+  LINE_RECEIPT_CAPTION: {
+    title: 'ข้อความแคปชันส่งพร้อมรูปใบเสร็จรับเงิน HD (Receipt Delivery Caption)',
+    badge: '🧾 แคปชันใบเสร็จ',
+    category: 'billing',
+    description: 'ข้อความที่ส่งคู่กับรูปใบเสร็จรับเงินเมื่อแอดมินกดบันทึกการชำระเงิน หรือส่งใบเสร็จรับเงินเข้า LINE',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `🧾 ใบเสร็จรับเงินค่าใช้จ่ายส่วนกลางและค่าน้ำประปา\nOfficial Receipt - {condo_name}\n\n🏠 ห้องชุด / Room: {room_no}\n📅 รอบบิล / Period: {period}\n🔢 เลขที่ใบเสร็จ / Receipt No: {receipt_no}\n💰 ยอดที่ชำระแล้ว / Amount Paid: {paid_amount} บาท (THB)\n📆 วันที่บันทึกชำระ / Date: {payment_date}\n\nขอบพระคุณที่ชำระค่าใช้จ่ายตรงเวลาครับ 🙏\nThank you for your prompt payment.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '674/001' },
+      { tag: '{period}', label: 'รอบบิล', desc: '2026-11' },
+      { tag: '{receipt_no}', label: 'เลขที่ใบเสร็จ', desc: '674/001-2026-11-R1' },
+      { tag: '{paid_amount}', label: 'ยอดเงินที่ชำระ', desc: '380.00' },
+      { tag: '{payment_date}', label: 'วันที่ชำระ', desc: '28/11/2026' },
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+    ],
+  },
+  LINE_BILL_OVERDUE_REMINDER: {
+    title: 'ข้อความแจ้งเตือนค้างชำระ / เกินกำหนดชำระ (Overdue Payment Reminder)',
+    badge: '⏳ เตือนค้างชำระ',
+    category: 'billing',
+    description: 'ใช้ส่งแจ้งเตือนห้องที่เลยกำหนดชำระ (หลังวันที่ 5 ของเดือน) เพื่อแจ้งยอดค้างและช่องทางโอนชำระอย่างสุภาพ',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `⏳ แจ้งเตือนยอดค้างชำระค่าใช้จ่ายประจำรอบ {period}\nPayment Reminder for Period {period}\n{condo_name}\n\n🏠 ห้องชุด / Room: {room_no}\n💰 ยอดค้างชำระที่ต้องชำระ / Amount Due: {total_due} บาท (THB)\n⚠️ เกินกำหนดชำระมาแล้ว / Overdue by: {days_late} วัน\n\n🏦 ช่องทางโอนชำระ / Payment Transfer:\n{bank_name} เลขบัญชี / A/C: {bank_account_no}\nชื่อบัญชี / A/C Name: {bank_account_name}\n\n📌 เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏\nPlease attach transfer slip in this chat after payment.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '674/001' },
+      { tag: '{period}', label: 'รอบบิล', desc: '2026-11' },
+      { tag: '{total_due}', label: 'ยอดค้างชำระ', desc: '480.00' },
+      { tag: '{days_late}', label: 'จำนวนวันที่เกิน', desc: '3' },
+      { tag: '{bank_name}', label: 'ชื่อธนาคาร', desc: 'กสิกรไทย' },
+      { tag: '{bank_account_no}', label: 'เลขบัญชี', desc: '098-8-82502-3' },
+      { tag: '{bank_account_name}', label: 'ชื่อบัญชี', desc: 'นิติบุคคลอาคารชุด สมบูรณ์' },
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+    ],
+  },
+  LINE_CUSTOM_NOTICE_DEFAULT: {
+    title: 'แม่แบบข้อความแจ้งเตือนหรือประกาศทั่วไป (General Broadcast / Notice Template)',
+    badge: '🔔 แม่แบบประกาศด่วน',
+    category: 'billing',
+    description: 'ข้อความตั้งต้นเมื่อกดปุ่ม "🔔 ส่งข้อความแจ้งเตือนที่เลือก" ในแท็บออกบิล ช่วยให้แอดมินแก้ไขก่อนส่งได้สะดวก',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `🔔 แจ้งเตือนจากนิติบุคคล {condo_name}\nNotice from Juristic Office - {condo_name}\n\n🏠 ห้อง / Room: {room_no}\nบิลรอบ {period} มียอดชำระสุทธิ {total_due} บาท (ครบกำหนด {due_date})\n\nหากท่านชำระเงินเรียบร้อยแล้ว รบกวนส่งรูปสลิปเข้ามาในแชตนี้ได้เลยครับ ขอบพระคุณครับ 🙏\nPlease attach transfer slip in this chat after payment. Thank you.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{room_no}', label: 'เลขห้อง', desc: '674/001' },
+      { tag: '{period}', label: 'รอบบิล', desc: '2026-11' },
+      { tag: '{total_due}', label: 'ยอดสุทธิ', desc: '380.00' },
+      { tag: '{due_date}', label: 'กำหนดชำระ', desc: '05/12/2026' },
+    ],
+  },
+
+  // ==========================================
+  // CATEGORY 3: INFO, COMMANDS & SERVICES (4)
+  // ==========================================
+  LINE_MENU_HELP: {
+    title: 'ข้อความคู่มือคำสั่งอัตโนมัติทั้งหมด (System Commands & Menu Guide)',
+    badge: '📖 เมนูคำสั่งระบบ',
+    category: 'info',
+    description: 'ส่งเมื่อลูกบ้านพิมพ์ "เมนู", "menu", "ช่วยเหลือ", "help" หรือแตะปุ่มเมนูบนริชเมนู',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `📌 เมนูคำสั่งตรวจสอบข้อมูลอัตโนมัติ (Automated Commands)\n{condo_name}\n\n• พิมพ์ "ดูบิล" หรือ "bill" — ดูใบแจ้งหนี้รอบปัจจุบัน\n• พิมพ์ "ใบเสร็จ" หรือ "receipt" — ดูใบเสร็จรับเงินล่าสุด\n• พิมพ์ "สเตทเมนท์" หรือ "statement" — ดูประวัติชำระ 12 เดือน\n• พิมพ์ "เงินระดมทุน" หรือ "fund" — ดูยอดเงินระดมทุนซ่อมตึก\n• พิมพ์ "การเงิน" หรือ "finance" — ดูสรุปรายรับ-รายจ่ายของตึก\n• พิมพ์ "เลขบัญชี" หรือ "bank" — ดูช่องทางโอนชำระเงิน\n• พิมพ์ "ติดต่อ" หรือ "contact" — ติดต่อเจ้าหน้าที่นิติบุคคล\n\n🕒 เวลาทำการแอดมินตอบแชท / Admin Working Hours: {admin_hours}`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
+    ],
+  },
+  LINE_BANK_INFO: {
+    title: 'ข้อความแจ้งเลขบัญชีและช่องทางชำระเงิน (Bank Account & Payment Transfer Info)',
+    badge: '🏦 บัญชีโอนเงิน',
+    category: 'info',
+    description: 'ส่งเมื่อลูกบ้านพิมพ์ "เลขบัญชี", "bank", "โอนเงิน", "qr" พร้อมข้อมูลบัญชีธนาคารสำหรับโอนเงิน',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `🏦 ช่องทางโอนชำระเงิน นิติบุคคล {condo_name}\nBank Account for Payment Transfer\n\n• ธนาคาร / Bank: {bank_name}\n• เลขที่บัญชี / Account No.: {bank_account_no}\n• ชื่อบัญชี / Account Name: {bank_account_name}\n\n📌 โอนเงินแล้วรบกวนส่งสลิปเข้าในแชตนี้เท่านั้นนะครับ เพื่อให้ออกใบเสร็จรับเงินได้ถูกต้อง 🙏\nPlease send transfer slip in this chat only.`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{bank_name}', label: 'ชื่อธนาคาร', desc: 'กสิกรไทย' },
+      { tag: '{bank_account_no}', label: 'เลขบัญชี', desc: '098-8-82502-3' },
+      { tag: '{bank_account_name}', label: 'ชื่อบัญชี', desc: 'นิติบุคคลอาคารชุด สมบูรณ์' },
+    ],
+  },
+  LINE_CONTACT_ADMIN: {
+    title: 'ข้อความช่องทางติดต่อนิติบุคคล / เวลาทำการ (Contact Juristic Admin & Office Hours)',
+    badge: '📞 ติดต่อแอดมิน',
+    category: 'info',
+    description: 'ส่งเมื่อลูกบ้านพิมพ์ "ติดต่อ", "contact", "แอดมิน", "admin", "เบอร์โทร", "นิติ"',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `🏢 ข้อมูลติดต่อนิติบุคคล {condo_name}\nJuristic Office Contact Information\n\n🕒 เวลาทำการตอบแชต LINE / Chat Hours:\n{admin_hours} (ทุกวัน)\n\n📞 เบอร์โทรศัพท์ติดต่อ / Tel: 081-403-6273\n📍 สำนักงานนิติบุคคล: ชั้น 1 อาคารชุด สมบูรณ์ คอนโดทาวน์\n\nหากท่านมีข้อสงสัยหรือต้องการความช่วยเหลือเร่งด่วน สามารถพิมพ์ข้อความทิ้งไว้ในแชตนี้ได้เลยครับ เจ้าหน้าที่จะรีบตอบกลับโดยเร็วครับ 🙏`,
+      },
+    ],
+    allowedTags: [
+      { tag: '{condo_name}', label: 'ชื่อคอนโด', desc: 'สมบูรณ์คอนโดทาวน์' },
+      { tag: '{admin_hours}', label: 'เวลาทำการ', desc: '12.00 - 24.00 น.' },
+    ],
+  },
+  LINE_FUND_INFO: {
+    title: 'ข้อความข้อมูลโครงการระดมทุนซ่อมแซมตึก (Maintenance Fund Project Info)',
+    badge: '🏗️ เงินระดมทุน',
+    category: 'info',
+    description: 'ส่งเมื่อลูกบ้านพิมพ์ "เงินระดมทุน", "fund", "กองทุน" เพื่อแจ้งรายละเอียดโครงการระดมทุน',
+    defaultBubbles: [
+      {
+        id: '1',
+        type: 'text',
+        text: `🏗️ โครงการเงินระดมทุนซ่อมแซมและปรับปรุงอาคาร\nBuilding Maintenance & Renovation Fund\n{condo_name}\n\nห้องชุดที่ร่วมสมทบเงินทุนซ่อมตึก จะได้รับสิทธิ์นำยอดเงินสมทบมาหักลดหย่อนค่าส่วนกลางรายเดือนได้ตามระเบียบที่นิติบุคคลกำหนดครับ\n\n📌 ตรวจสอบยอดเงินสมทบสะสมของห้องท่าน:\nพิมพ์คำว่า "ดูบิล" หรือ "bill" เพื่อดูยอดเงินสมทบสะสมที่สามารถนำมาลดหย่อนได้ครับ 🙏`,
       },
     ],
     allowedTags: [

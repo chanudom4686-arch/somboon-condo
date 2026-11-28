@@ -45,6 +45,51 @@ async function replyLineMessage(replyToken: string, messages: any[], accessToken
   }
 }
 
+async function syncLineUserProfile(
+  lineUserId: string,
+  accessToken: string,
+  supabase: any,
+  lastMsg = '',
+  msgType = 'text'
+) {
+  try {
+    let displayName = '';
+    let pictureUrl = '';
+    let statusMessage = '';
+
+    if (accessToken) {
+      try {
+        const profRes = await fetch(`https://api.line.me/v2/bot/profile/${lineUserId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (profRes.ok) {
+          const prof = await profRes.json();
+          displayName = prof.displayName || '';
+          pictureUrl = prof.pictureUrl || '';
+          statusMessage = prof.statusMessage || '';
+        }
+      } catch (err) {
+        // ignore network error
+      }
+    }
+
+    await supabase.from('line_recent_users').upsert(
+      {
+        line_user_id: lineUserId,
+        display_name: displayName,
+        picture_url: pictureUrl,
+        status_message: statusMessage,
+        last_message: lastMsg,
+        message_type: msgType,
+        last_seen_at: new Date().toISOString(),
+      },
+      { onConflict: 'line_user_id' }
+    );
+  } catch (err) {
+    console.error('Failed to sync LINE user profile:', err);
+  }
+}
+
 // Mask the last 4 digits of a phone number with XXXX (e.g. "081-234-6273" -> "081-234-XXXX")
 // Supports multiple phone numbers separated by comma or slash
 function maskSinglePhone(phoneStr: string): string {
@@ -186,6 +231,7 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
 
       // 0. Handle New Friend Added ("follow" event)
       if (event.type === 'follow') {
+        syncLineUserProfile(lineUserId, accessToken, supabase, 'เพิ่มเพื่อน (Follow)', 'follow');
         const welcomeBubbles = parseConfigToBubbles(
           config.LINE_WELCOME_NEW_FRIEND,
           DEFAULT_LINE_TEMPLATES.LINE_WELCOME_NEW_FRIEND.defaultBubbles
@@ -202,8 +248,43 @@ Please tap "ลงทะเบียน (Register)" on the Rich Menu below (or t
         continue;
       }
 
+      // Handle Image / Payment Slip Upload
+      if (event.type === 'message' && event.message?.type === 'image') {
+        syncLineUserProfile(lineUserId, accessToken, supabase, '[ส่งรูปภาพ/สลิปโอนเงิน]', 'image');
+
+        const slipBubbles = parseConfigToBubbles(
+          config.LINE_SLIP_RECEIVED,
+          DEFAULT_LINE_TEMPLATES.LINE_SLIP_RECEIVED.defaultBubbles
+        );
+        const slipMessages = buildLineMessagesFromBubbles(slipBubbles, {
+          condo_name: condoName,
+          admin_hours: '12.00 - 24.00 น.',
+        });
+
+        await replyLineMessage(
+          replyToken,
+          slipMessages.length > 0
+            ? slipMessages
+            : [
+                {
+                  type: 'text',
+                  text: `📸 นิติบุคคลได้รับรูปสลิปการโอนเงินเรียบร้อยแล้วครับ ขอบพระคุณครับ 🙏\nWe have received your payment slip.\n\nเจ้าหน้าที่จะดำเนินการตรวจสอบยอดเงินและออกใบเสร็จรับเงินให้อย่างเป็นทางการครับ\n🕒 เวลาทำการแอดมินตอบแชท: 12.00 - 24.00 น.`,
+                },
+              ],
+          accessToken
+        );
+        continue;
+      }
+
+      // Handle Sticker
+      if (event.type === 'message' && event.message?.type === 'sticker') {
+        syncLineUserProfile(lineUserId, accessToken, supabase, '[สติ๊กเกอร์ LINE]', 'sticker');
+        continue;
+      }
+
       if (event.type === 'message' && event.message?.type === 'text') {
         const text = (event.message.text || '').trim();
+        syncLineUserProfile(lineUserId, accessToken, supabase, text, 'text');
         const lowerText = text.toLowerCase();
         const stateKey = `LINE_REG_STATE_${lineUserId}`;
         const pendingState = config[stateKey] || '';
