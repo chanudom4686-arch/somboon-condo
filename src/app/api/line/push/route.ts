@@ -1,5 +1,5 @@
 // LINE OA Push Notification API for Single Room or Selected Batch of Rooms
-// Version 2.5 - Supports Receipt Image Push, Consolidated Multi-Room Push, Removed Tax ID, and Asia/Bangkok timezone
+// Version 2.19 - Full Bilingual (TH/EN) Support for Single and Multi-room Bills & Receipt Captions
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
       const captionText =
         receiptText ||
-        `🧾 ใบเสร็จรับเงิน ห้อง ${formatRoomNo(targetRoomNo)} ประจำรอบ ${activePeriod}\n${condoName}\nขอบพระคุณที่ชำระเงินตรงเวลาครับ 🙏`;
+        `🧾 ใบเสร็จรับเงิน / Official Receipt\nห้อง / Room: ${formatRoomNo(targetRoomNo)} • รอบบิล / Period: ${activePeriod}\n${condoName}\nขอบพระคุณที่ชำระเงินตรงเวลาครับ / Thank you for your payment! 🙏`;
 
       const lineRes = await fetch('https://api.line.me/v2/bot/message/push', {
         method: 'POST',
@@ -253,41 +253,44 @@ export async function POST(req: NextRequest) {
             });
           } else if (bill.special_items !== 0) {
             extraLines.push(
-              `• ${bill.special_items < 0 ? 'ส่วนลดพิเศษ' : 'รายการเพิ่มเติม'} (${bill.special_items_note || '-'}): ${
+              `• ${bill.special_items < 0 ? 'ส่วนลดพิเศษ / Special Discount' : 'รายการเพิ่มเติม / Extra Item'} (${bill.special_items_note || '-'}): ${
                 bill.special_items > 0 ? '+' : ''
-              }${bill.special_items.toLocaleString()} บ.`
+              }${bill.special_items.toLocaleString()} บ. (THB)`
             );
           }
           if (bill.late_fee > 0) {
-            extraLines.push(`• เบี้ยปรับล่าช้า: +${bill.late_fee.toLocaleString()} บ.`);
+            extraLines.push(`• เบี้ยปรับล่าช้า / Late Fee: +${bill.late_fee.toLocaleString()} บ. (THB)`);
           }
           if (bill.contribution_deducted > 0) {
-            extraLines.push(`• หักเครดิตสมทบทุนซ่อมตึก: -${bill.contribution_deducted.toLocaleString()} บ.`);
+            extraLines.push(`• หักเครดิตสมทบทุน / Fund Credit: -${bill.contribution_deducted.toLocaleString()} บ. (THB)`);
           }
           if (bill.prepaid_deducted > 0) {
-            extraLines.push(`• หักเงินฝากล่วงหน้า: -${bill.prepaid_deducted.toLocaleString()} บ.`);
+            extraLines.push(`• หักเงินฝากล่วงหน้า / Prepaid Deposit: -${bill.prepaid_deducted.toLocaleString()} บ. (THB)`);
           }
           if (bill.outstanding_balance > 0) {
-            extraLines.push(`• ยอดค้างชำระยกมา: +${bill.outstanding_balance.toLocaleString()} บ.`);
+            extraLines.push(`• ยอดค้างชำระยกมา / Arrears: +${bill.outstanding_balance.toLocaleString()} บ. (THB)`);
           }
+
+          const ownerName = room.owner_name || room.tenant_name || 'ท่านเจ้าของร่วม / Resident';
 
           messageText =
             `🧾 แจ้งใบแจ้งหนี้ประจำรอบ ${activePeriod}\n` +
+            `Monthly Invoice - Period ${activePeriod}\n` +
             `${condoName}\n` +
-            `ห้อง: ${formatRoomNo(room.room_no)}\n` +
+            `ห้อง / Room: ${formatRoomNo(room.room_no)} (${ownerName})\n` +
             `━━━━━━━━━━━━━━\n` +
-            `• มิเตอร์น้ำ: ${bill.prev_meter} ➔ ${bill.curr_meter} (ใช้ ${bill.units_used} หน่วย)\n` +
-            `1. ค่าน้ำประปา (${bill.units_used} × ${bill.water_rate} บ.): ${bill.water_amount.toLocaleString()} บ.\n` +
-            `2. ค่าบำบัดน้ำเสีย (${bill.units_used} × ${bill.wastewater_rate} บ.): ${bill.wastewater_amount.toLocaleString()} บ.\n` +
-            `3. ค่าส่วนกลาง: ${bill.common_fee.toLocaleString()} บ.\n` +
+            `💧 มิเตอร์น้ำ / Water Meter: ${bill.prev_meter} ➔ ${bill.curr_meter} (${bill.units_used} Units)\n` +
+            `1. ค่าน้ำประปา / Water Supply (${bill.units_used} × ${bill.water_rate} บ.): ${bill.water_amount.toLocaleString()} บ.\n` +
+            `2. ค่าบำบัดน้ำเสีย / Wastewater (${bill.units_used} × ${bill.wastewater_rate} บ.): ${bill.wastewater_amount.toLocaleString()} บ.\n` +
+            `3. ค่าส่วนกลาง / Common Fee: ${bill.common_fee.toLocaleString()} บ.\n` +
             (extraLines.length > 0 ? extraLines.join('\n') + '\n' : '') +
             `━━━━━━━━━━━━━━\n` +
-            `💰 ยอดรวมที่ต้องชำระ: ${bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท\n` +
-            `📅 กำหนดชำระภายในวันที่: ${bill.due_date}\n\n` +
-            `🏦 ช่องทางโอนชำระ:\n` +
-            `${config.BANK_NAME || 'กสิกรไทย'} เลขบัญชี: ${config.BANK_ACCOUNT_NO || '-'}\n` +
-            `ชื่อบัญชี: ${config.BANK_ACCOUNT_NAME || condoName}\n\n` +
-            `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏`;
+            `💰 ยอดรวมที่ต้องชำระ / Total Due: ${bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท / THB\n` +
+            `📅 กำหนดชำระภายในวันที่ / Due Date: ${bill.due_date}\n\n` +
+            `🏦 ช่องทางโอนชำระ / Payment Transfer:\n` +
+            `${config.BANK_NAME || 'กสิกรไทย'} เลขบัญชี / A/C: ${config.BANK_ACCOUNT_NO || '-'}\n` +
+            `ชื่อบัญชี / A/C Name: ${config.BANK_ACCOUNT_NAME || condoName}\n\n` +
+            `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏\nPlease attach transfer slip in this chat after payment.`;
         }
       }
 

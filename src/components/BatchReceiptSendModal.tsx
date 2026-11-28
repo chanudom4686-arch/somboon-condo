@@ -191,7 +191,7 @@ export const BatchReceiptSendModal: React.FC<BatchReceiptSendModalProps> = ({
             roomNo: targetRoom.room_no,
             imageUrl: publicReceiptUrl,
             period,
-            receiptText: `🧾 ใบเสร็จรับเงิน ห้อง ${formatRoomNo(targetRoom.room_no)} เลขที่ ${receiptNo}\nรอบบิล / Period: ${period}\nยอดชำระ / Amount: ${bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท (${paidMethod})\nขอบพระคุณที่ชำระเงินตรงเวลาครับ 🙏`,
+            receiptText: `🧾 ใบเสร็จรับเงิน / Official Receipt\nห้อง / Room: ${formatRoomNo(targetRoom.room_no)} • เลขที่ / No: ${receiptNo}\nรอบบิล / Period: ${period} • ยอดชำระ / Amount: ${bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท / THB (${paidMethod})\nขอบพระคุณที่ชำระเงินตรงเวลาครับ / Thank you for your payment! 🙏`,
           }),
         });
 

@@ -259,7 +259,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           roomNo: room.room_no,
           imageUrl: publicReceiptUrl,
           period,
-          receiptText: `🧾 ใบเสร็จรับเงิน ห้อง ${formatRoomNo(room.room_no)} เลขที่ ${successReceipt?.receiptNo}\nรอบบิล: ${period}\nยอดชำระ: ${amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท (${paymentMethod})\nขอบพระคุณที่ชำระเงินตรงเวลาครับ 🙏`,
+          receiptText: `🧾 ใบเสร็จรับเงิน / Official Receipt\nห้อง / Room: ${formatRoomNo(room.room_no)} • เลขที่ / No: ${successReceipt?.receiptNo}\nรอบบิล / Period: ${period} • ยอดชำระ / Amount: ${amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท / THB (${paymentMethod})\nขอบพระคุณที่ชำระเงินตรงเวลาครับ / Thank you for your payment! 🙏`,
         }),
       });
 
