@@ -1,14 +1,15 @@
 'use client';
 
 // Main Application Page for Condo 674 Management System
-// Version 2.18 - Customizable QR Notes, Large Print QR, Crisp HD Receipt, Bilingual Multi-room Bills
+// Version 2.20 - Enhanced Multi-Room Billing View, Live Bilingual Preview Modal, 1-Click Copy & Direct Push
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@/utils/supabase/client';
-import { Room, MeterLog, CondoConfig, LineAutoReplyRule } from '@/types/condo';
+import { Room, MeterLog, CondoConfig, LineAutoReplyRule, BillCalculationResult } from '@/types/condo';
 import {
   formatRoomNo,
   calculateBill,
+  formatConsolidatedBillText,
   isPeriodPastDue,
   getCommonFeeForRoom,
   resolveRoomNo,
@@ -26,6 +27,7 @@ import { MultiRoomPayModal } from '@/components/MultiRoomPayModal';
 import { BatchReceiptSendModal } from '@/components/BatchReceiptSendModal';
 import { LineSystemMessageEditor } from '@/components/LineSystemMessageEditor';
 import { BatchDeductionModal } from '@/components/BatchDeductionModal';
+import { ConsolidatedBillPreviewModal } from '@/components/ConsolidatedBillPreviewModal';
 
 const THAI_MONTHS = [
   { num: '01', label: '01 - มกราคม' },
@@ -85,6 +87,12 @@ export default function AdminCondoApp() {
   const [auditFilter, setAuditFilter] = useState<'all' | 'has_photo' | 'unverified' | 'verified' | 'anomaly' | 'unread'>('all');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'unpaid' | 'overdue' | 'paid' | 'receipt_unsent' | 'receipt_sent' | 'late_paid' | 'line_notified' | 'phone_called' | 'multi_room'>('all');
   const [roomsViewMode, setRoomsViewMode] = useState<'individual' | 'by_owner'>('individual');
+  const [billingViewMode, setBillingViewMode] = useState<'individual' | 'by_owner'>('individual');
+  const [consolidatedPreviewOwner, setConsolidatedPreviewOwner] = useState<{
+    owner_name: string;
+    rooms: Room[];
+  } | null>(null);
+  const [copiedToast, setCopiedToast] = useState<string | null>(null);
   const [showMultiRoomPayModal, setShowMultiRoomPayModal] = useState(false);
   const [showBatchReceiptModal, setShowBatchReceiptModal] = useState(false);
   const [batchReceiptPreselectedRoomNos, setBatchReceiptPreselectedRoomNos] = useState<string[] | undefined>(undefined);
@@ -364,6 +372,25 @@ export default function AdminCondoApp() {
       (a, b) => b.rooms.length - a.rooms.length || a.owner_name.localeCompare(b.owner_name, 'th')
     );
   }, [rooms]);
+
+  const multiRoomOwners = useMemo(() => {
+    return ownerGroups.filter(
+      (g) => g.rooms.length > 1 && g.owner_name !== 'ไม่ระบุชื่อเจ้าของ'
+    );
+  }, [ownerGroups]);
+
+  const filteredMultiRoomOwners = useMemo(() => {
+    if (!searchQuery.trim()) return multiRoomOwners;
+    const q = searchQuery.toLowerCase().trim();
+    return multiRoomOwners.filter((g) => {
+      const matchName = g.owner_name.toLowerCase().includes(q);
+      const matchPhone = g.rooms.some((r) => (r.owner_phone || '').includes(q));
+      const matchRoom = g.rooms.some(
+        (r) => r.room_no.includes(q) || formatRoomNo(r.room_no).includes(q)
+      );
+      return matchName || matchPhone || matchRoom;
+    });
+  }, [multiRoomOwners, searchQuery]);
 
   const filteredRooms = useMemo(() => {
     return rooms.filter((r) => {
@@ -1647,11 +1674,51 @@ export default function AdminCondoApp() {
                       type="button"
                       disabled={isGeneratingQr}
                       onClick={() => handleOpenPrint('invoice', [])}
-                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow text-xs flex items-center gap-1.5"
+                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow text-xs flex items-center gap-1.5 cursor-pointer"
                     >
                       {isGeneratingQr ? 'กำลังสร้าง QR...' : '🖨️ พิมพ์ใบแจ้งหนี้ 4 บิลต่อ 1 A4 (ทั้งหมด)'}
                     </button>
                   </div>
+                </div>
+
+                {/* Billing View Mode Segmented Controls */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-500 mr-1">มุมมองการออกบิล:</span>
+                    <button
+                      type="button"
+                      onClick={() => setBillingViewMode('individual')}
+                      className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer ${
+                        billingViewMode === 'individual'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <span>🏠</span>
+                      <span>แสดงรายห้องเดี่ยว ({filteredRooms.length} ห้อง)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBillingViewMode('by_owner')}
+                      className={`px-3.5 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer ${
+                        billingViewMode === 'by_owner'
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200'
+                      }`}
+                    >
+                      <span>👑</span>
+                      <span>
+                        สรุปตามเจ้าของหลายห้อง ({multiRoomOwners.length} ท่าน / {multiRoomOwners.reduce((s, g) => s + g.rooms.length, 0)} ห้อง)
+                      </span>
+                    </button>
+                  </div>
+
+                  {billingViewMode === 'by_owner' && (
+                    <div className="text-xs text-purple-900 bg-purple-50 border border-purple-200 px-3 py-1 rounded-xl flex items-center gap-1.5">
+                      <span>💡</span>
+                      <span>คลิก <b>&quot;👁️ ดูตัวอย่างบิลรวม&quot;</b> หรือ <b>&quot;📋 คัดลอก&quot;</b> เพื่อตรวจสอบยอด 2 ภาษาและส่งบิลได้อย่างรวดเร็ว</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Smart Selection & Batch Action Toolbar */}
@@ -1762,212 +1829,551 @@ export default function AdminCondoApp() {
                   </div>
                 </div>
 
-                {/* Separated Calculation Cards Summary */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
-                  <div className="bg-white p-3 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">1. รวมค่าน้ำประปา (35 บ./น.)</span>
-                    <span className="text-base font-bold text-slate-800 font-mono">
-                      {billingSummary.totalWaterAmt.toLocaleString()} บ.
-                    </span>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">2. รวมค่าบำบัดน้ำเสีย (5 บ./น.)</span>
-                    <span className="text-base font-bold text-slate-800 font-mono">
-                      {billingSummary.totalWastewaterAmt.toLocaleString()} บ.
-                    </span>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">3. รวมค่าส่วนกลาง</span>
-                    <span className="text-base font-bold text-slate-800 font-mono">
-                      {billingSummary.totalCommonFee.toLocaleString()} บ.
-                    </span>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200">
-                    <span className="text-slate-500 block">หักเครดิตสมทบทุนซ่อมตึก</span>
-                    <span className="text-base font-bold text-emerald-700 font-mono">
-                      -{billingSummary.totalContribDeducted.toLocaleString()} บ.
-                    </span>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 bg-blue-50/30">
-                    <span className="text-slate-500 block">ยอดรวมเรียกเก็บสุทธิทั้งตึก</span>
-                    <span className="text-base font-bold text-blue-700 font-mono">
-                      {billingSummary.totalBilled.toLocaleString()} บ.
-                    </span>
-                  </div>
-                </div>
+                {billingViewMode === 'by_owner' ? (
+                  <div className="space-y-4">
+                    {/* Multi-Room KPI Summary Strip */}
+                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs">
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                        <span className="text-slate-500 block">👑 เจ้าของหลายห้อง</span>
+                        <span className="text-base font-bold text-purple-800 font-mono">
+                          {multiRoomOwners.length} ท่าน
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                        <span className="text-slate-500 block">🏢 รวมห้องชุด</span>
+                        <span className="text-base font-bold text-slate-800 font-mono">
+                          {multiRoomOwners.reduce((s, g) => s + g.rooms.length, 0)} ห้อง
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                        <span className="text-slate-500 block">ค่าน้ำรวม ({multiRoomOwners.reduce((s, g) => s + g.rooms.reduce((rs, r) => rs + (billMap[r.room_no]?.units_used || 0), 0), 0)} น.)</span>
+                        <span className="text-base font-bold text-slate-800 font-mono">
+                          {multiRoomOwners.reduce((s, g) => s + g.rooms.reduce((rs, r) => rs + (billMap[r.room_no]?.water_amount || 0), 0), 0).toLocaleString()} บ.
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                        <span className="text-slate-500 block">ค่าบำบัดน้ำเสียรวม</span>
+                        <span className="text-base font-bold text-slate-800 font-mono">
+                          {multiRoomOwners.reduce((s, g) => s + g.rooms.reduce((rs, r) => rs + (billMap[r.room_no]?.wastewater_amount || 0), 0), 0).toLocaleString()} บ.
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+                        <span className="text-slate-500 block">ค่าส่วนกลางรวม</span>
+                        <span className="text-base font-bold text-slate-800 font-mono">
+                          {multiRoomOwners.reduce((s, g) => s + g.rooms.reduce((rs, r) => rs + (billMap[r.room_no]?.common_fee || 0), 0), 0).toLocaleString()} บ.
+                        </span>
+                      </div>
+                      <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-3 rounded-xl border border-purple-200 shadow-xs">
+                        <span className="text-purple-700 font-bold block">ยอดรวมสุทธิทั้ง {multiRoomOwners.length} ท่าน</span>
+                        <span className="text-base font-black text-purple-900 font-mono">
+                          {multiRoomOwners.reduce((s, g) => s + g.rooms.reduce((rs, r) => rs + (billMap[r.room_no]?.total_amount || 0), 0), 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
+                        </span>
+                      </div>
+                    </div>
 
-                {/* Bills Management Table */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead className="bg-slate-50 text-slate-600 border-b">
-                        <tr>
-                          <th className="py-2.5 px-2 text-center w-8">
-                            <input
-                              type="checkbox"
-                              checked={
-                                filteredRooms.length > 0 &&
-                                filteredRooms.every((r) => selectedRooms.includes(r.room_no))
-                              }
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedRooms(filteredRooms.map((r) => r.room_no));
-                                } else {
-                                  setSelectedRooms([]);
-                                }
-                              }}
-                              className="rounded"
-                            />
-                          </th>
-                          <th className="py-2.5 px-2 text-left">ห้อง</th>
-                          <th className="py-2.5 px-2 text-right">มิเตอร์ (หน่วย)</th>
-                          <th className="py-2.5 px-2 text-right">ค่าน้ำ (35 บ.)</th>
-                          <th className="py-2.5 px-2 text-right">ค่าบำบัด (5 บ.)</th>
-                          <th className="py-2.5 px-2 text-right">ส่วนกลาง</th>
-                          <th className="py-2.5 px-2 text-right">รายการเพิ่ม/ส่วนลด</th>
-                          <th className="py-2.5 px-2 text-right">ลดหย่อน (เงินสมทบ)</th>
-                          <th className="py-2.5 px-2 text-right font-bold">ยอดสุทธิ</th>
-                          <th className="py-2.5 px-2 text-center">สถานะ LINE</th>
-                          <th className="py-2.5 px-2 text-center">จัดการบิล / พิมพ์บิล / ส่ง LINE</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y text-slate-800">
-                        {filteredRooms.map((room) => {
-                          const bill = billMap[room.room_no];
-                          if (!bill) return null;
-                          const log = logMap[room.room_no];
-                          const isSelected = selectedRooms.includes(room.room_no);
-                          const hasLine = !!room.line_user_id;
+                    {/* Owner Cards List */}
+                    <div className="space-y-3">
+                      {filteredMultiRoomOwners.length === 0 ? (
+                        <div className="bg-white rounded-2xl p-8 border border-slate-200 text-center text-slate-400 text-xs">
+                          ไม่พบเจ้าของหลายห้องที่ตรงกับคำค้นหา &quot;{searchQuery}&quot;
+                        </div>
+                      ) : (
+                        filteredMultiRoomOwners.map((g) => {
+                          const ownerBills = g.rooms.map((r) => billMap[r.room_no]).filter(Boolean);
+                          const totalAmt = ownerBills.reduce((s, b) => s + b.total_amount, 0);
+                          const waterAmt = ownerBills.reduce((s, b) => s + b.water_amount, 0);
+                          const waterUnits = ownerBills.reduce((s, b) => s + b.units_used, 0);
+                          const wastewaterAmt = ownerBills.reduce((s, b) => s + b.wastewater_amount, 0);
+                          const commonFeeAmt = ownerBills.reduce((s, b) => s + b.common_fee, 0);
+                          const deductAmt = ownerBills.reduce((s, b) => s + (b.contribution_deducted + b.prepaid_deducted), 0);
+                          const linkedRooms = g.rooms.filter((r) => !!r.line_user_id);
+                          const pushedRooms = g.rooms.filter((r) => !!logMap[r.room_no]?.line_push_status);
+                          const isFullyLinked = linkedRooms.length === g.rooms.length;
+                          const isFullyPushed = pushedRooms.length === g.rooms.length && g.rooms.length > 0;
+                          const allSelected = g.rooms.every((r) => selectedRooms.includes(r.room_no));
+                          const someSelected = g.rooms.some((r) => selectedRooms.includes(r.room_no));
+                          const ownerPhone = g.rooms.find((r) => r.owner_phone)?.owner_phone || '-';
 
                           return (
-                            <tr
-                              key={room.room_no}
-                              className={`hover:bg-slate-50 ${isSelected ? 'bg-blue-50/40' : ''}`}
+                            <div
+                              key={g.owner_name}
+                              className={`bg-white rounded-2xl border transition-all shadow-xs overflow-hidden ${
+                                allSelected
+                                  ? 'border-purple-400 bg-purple-50/20 ring-1 ring-purple-300'
+                                  : 'border-slate-200 hover:border-purple-200'
+                              }`}
                             >
-                              <td className="py-2 px-2 text-center">
+                              {/* Owner Card Header */}
+                              <div className="p-4 bg-slate-50/80 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    ref={(input) => {
+                                      if (input) input.indeterminate = someSelected && !allSelected;
+                                    }}
+                                    onChange={(e) => {
+                                      const roomNos = g.rooms.map((r) => r.room_no);
+                                      if (e.target.checked) {
+                                        setSelectedRooms((prev) => Array.from(new Set([...prev, ...roomNos])));
+                                      } else {
+                                        setSelectedRooms((prev) => prev.filter((id) => !roomNos.includes(id)));
+                                      }
+                                    }}
+                                    className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 cursor-pointer"
+                                    title="เลือกทุกห้องของเจ้าของท่านนี้"
+                                  />
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                                        <span>👑</span>
+                                        <span>{g.owner_name}</span>
+                                      </h3>
+                                      <span className="text-[11px] bg-purple-100 text-purple-800 border border-purple-200 px-2 py-0.5 rounded-full font-bold">
+                                        {g.rooms.length} ห้องชุด
+                                      </span>
+                                      {isFullyPushed ? (
+                                        <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                          <span>✅</span>
+                                          <span>ส่งบิล LINE แล้วครบทุกห้อง</span>
+                                        </span>
+                                      ) : pushedRooms.length > 0 ? (
+                                        <span className="text-[10px] bg-sky-100 text-sky-800 border border-sky-300 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                          <span>📲</span>
+                                          <span>ส่งบิลแล้ว {pushedRooms.length}/{g.rooms.length} ห้อง</span>
+                                        </span>
+                                      ) : null}
+                                      {isFullyLinked ? (
+                                        <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
+                                          LINE ครบ ({linkedRooms.length}/{g.rooms.length})
+                                        </span>
+                                      ) : linkedRooms.length > 0 ? (
+                                        <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
+                                          LINE บางส่วน ({linkedRooms.length}/{g.rooms.length})
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 px-2 py-0.5 rounded-full font-medium">
+                                          ไม่มี LINE
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-2">
+                                      <span>📞 โทร: {ownerPhone}</span>
+                                      <span>•</span>
+                                      <span>ห้อง: {g.rooms.map((r) => formatRoomNo(r.room_no)).join(', ')}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Financial Sum & One-Click Actions */}
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right">
+                                    <span className="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">
+                                      ยอดรวมสุทธิ {g.rooms.length} ห้อง
+                                    </span>
+                                    <span className="text-lg font-black text-purple-900 font-mono">
+                                      {totalAmt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <button
+                                      type="button"
+                                      onClick={() => setConsolidatedPreviewOwner(g)}
+                                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1 cursor-pointer"
+                                      title="ดูตัวอย่างข้อความบิลรวมและยอดสรุป"
+                                    >
+                                      <span>👁️</span>
+                                      <span>ดูตัวอย่างบิลรวม</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        const items = g.rooms
+                                          .map((room) => ({ room, bill: billMap[room.room_no] }))
+                                          .filter((it): it is { room: Room; bill: BillCalculationResult } => !!it.bill);
+                                        const formatted = formatConsolidatedBillText(g.owner_name, items, period, config);
+                                        try {
+                                          await navigator.clipboard.writeText(formatted.messageText);
+                                        } catch {
+                                          const ta = document.createElement('textarea');
+                                          ta.value = formatted.messageText;
+                                          document.body.appendChild(ta);
+                                          ta.select();
+                                          document.execCommand('copy');
+                                          document.body.removeChild(ta);
+                                        }
+                                        setCopiedToast(`คัดลอกข้อความบิลรวมของ "${g.owner_name}" เรียบร้อยแล้ว`);
+                                        setTimeout(() => setCopiedToast(null), 3000);
+                                      }}
+                                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                      title="คัดลอกข้อความบิลรวมสำหรับส่งในแชตส่วนตัวหรือ SMS"
+                                    >
+                                      <span>📋</span>
+                                      <span>คัดลอก</span>
+                                    </button>
+                                    {linkedRooms.length > 0 && (
+                                      <button
+                                        type="button"
+                                        disabled={isPushingLine}
+                                        onClick={async () => {
+                                          const confirmMsg =
+                                            `ยืนยันส่งบิลรวม ${g.rooms.length} ห้องชุด ให้ "${g.owner_name}" ผ่าน LINE OA?\n` +
+                                            `• ยอดรวมสุทธิ: ${totalAmt.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท\n` +
+                                            `• ห้องที่ผูก LINE: ${linkedRooms.length} ห้อง`;
+                                          if (!window.confirm(confirmMsg)) return;
+                                          await handlePushLine(g.rooms.map((r) => r.room_no), 'bill');
+                                        }}
+                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                                        title="ส่งบิลรวมเข้า LINE OA ทันที"
+                                      >
+                                        <span>📲</span>
+                                        <span>ส่ง LINE</span>
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenPrint('invoice', g.rooms.map((r) => r.room_no))}
+                                      className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border border-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                                      title="พิมพ์เฉพาะชุดใบแจ้งหนี้ของเจ้าของท่านนี้"
+                                    >
+                                      <span>🖨️</span>
+                                      <span>พิมพ์</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Owner Breakdown Sub-Grid */}
+                              <div className="p-3 bg-white">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] mb-3 text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                  <div>
+                                    <span className="text-slate-400 block text-[10px]">ค่าน้ำรวม:</span>
+                                    <span className="font-bold text-slate-900 font-mono">
+                                      {waterAmt.toLocaleString()} บ. ({waterUnits} หน่วย)
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block text-[10px]">ค่าบำบัดน้ำเสียรวม:</span>
+                                    <span className="font-bold text-slate-900 font-mono">
+                                      {wastewaterAmt.toLocaleString()} บ.
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block text-[10px]">ค่าส่วนกลางรวม:</span>
+                                    <span className="font-bold text-slate-900 font-mono">
+                                      {commonFeeAmt.toLocaleString()} บ.
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block text-[10px]">หักลดหย่อนรวม:</span>
+                                    <span className="font-bold text-emerald-700 font-mono">
+                                      {deductAmt > 0 ? `-${deductAmt.toLocaleString()} บ.` : '-'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Rooms Strip */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                                  {g.rooms.map((room) => {
+                                    const b = billMap[room.room_no];
+                                    const log = logMap[room.room_no];
+                                    if (!b) return null;
+                                    const isRoomPushed = !!log?.line_push_status;
+                                    const hasLine = !!room.line_user_id;
+
+                                    return (
+                                      <div
+                                        key={room.room_no}
+                                        className="p-2 rounded-xl border border-slate-200/80 hover:border-slate-300 bg-slate-50/50 flex flex-col justify-between text-xs"
+                                      >
+                                        <div className="flex items-center justify-between">
+                                          <span className="font-bold font-mono text-blue-700 text-xs">
+                                            {b.formatted_room}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => setBillEditRoom(room)}
+                                            className="text-[10px] text-amber-700 hover:text-amber-800 font-bold px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 rounded border border-amber-200 cursor-pointer"
+                                            title="แก้ไขบิลห้องนี้"
+                                          >
+                                            ✏️ แก้บิล
+                                          </button>
+                                        </div>
+                                        <div className="text-[10px] text-slate-500 font-mono mt-1">
+                                          มิเตอร์: {b.prev_meter}➔{b.curr_meter} ({b.units_used} น.)
+                                        </div>
+                                        <div className="flex items-center justify-between mt-2 pt-1 border-t border-slate-200/60 font-mono">
+                                          <span className="font-bold text-slate-900">
+                                            {b.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ.
+                                          </span>
+                                          {isRoomPushed ? (
+                                            <span className="text-[9px] text-emerald-700 font-bold">
+                                              ✅ ส่งแล้ว
+                                            </span>
+                                          ) : hasLine ? (
+                                            <span className="text-[9px] text-sky-600 font-medium">
+                                              📲 มี LINE
+                                            </span>
+                                          ) : (
+                                            <span className="text-[9px] text-slate-400">
+                                              ไม่มี LINE
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Separated Calculation Cards Summary */}
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                      <div className="bg-white p-3 rounded-xl border border-slate-200">
+                        <span className="text-slate-500 block">1. รวมค่าน้ำประปา (35 บ./น.)</span>
+                        <span className="text-base font-bold text-slate-800 font-mono">
+                          {billingSummary.totalWaterAmt.toLocaleString()} บ.
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-200">
+                        <span className="text-slate-500 block">2. รวมค่าบำบัดน้ำเสีย (5 บ./น.)</span>
+                        <span className="text-base font-bold text-slate-800 font-mono">
+                          {billingSummary.totalWastewaterAmt.toLocaleString()} บ.
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-200">
+                        <span className="text-slate-500 block">3. รวมค่าส่วนกลาง</span>
+                        <span className="text-base font-bold text-slate-800 font-mono">
+                          {billingSummary.totalCommonFee.toLocaleString()} บ.
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-200">
+                        <span className="text-slate-500 block">หักเครดิตสมทบทุนซ่อมตึก</span>
+                        <span className="text-base font-bold text-emerald-700 font-mono">
+                          -{billingSummary.totalContribDeducted.toLocaleString()} บ.
+                        </span>
+                      </div>
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 bg-blue-50/30">
+                        <span className="text-slate-500 block">ยอดรวมเรียกเก็บสุทธิทั้งตึก</span>
+                        <span className="text-base font-bold text-blue-700 font-mono">
+                          {billingSummary.totalBilled.toLocaleString()} บ.
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bills Management Table */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-50 text-slate-600 border-b">
+                            <tr>
+                              <th className="py-2.5 px-2 text-center w-8">
                                 <input
                                   type="checkbox"
-                                  checked={isSelected}
+                                  checked={
+                                    filteredRooms.length > 0 &&
+                                    filteredRooms.every((r) => selectedRooms.includes(r.room_no))
+                                  }
                                   onChange={(e) => {
                                     if (e.target.checked) {
-                                      setSelectedRooms((prev) => [...prev, room.room_no]);
+                                      setSelectedRooms(filteredRooms.map((r) => r.room_no));
                                     } else {
-                                      setSelectedRooms((prev) => prev.filter((id) => id !== room.room_no));
+                                      setSelectedRooms([]);
                                     }
                                   }}
                                   className="rounded"
                                 />
-                              </td>
-                              <td className="py-2 px-2">
-                                <div className="font-bold text-blue-700 font-mono">{bill.formatted_room}</div>
-                                <div className="text-[10px] text-slate-500 truncate max-w-[100px]">
-                                  {room.owner_name || room.room_type}
-                                </div>
-                              </td>
-                              <td className="py-2 px-2 text-right font-mono">
-                                <span className="text-slate-500 text-[11px]">
-                                  {bill.prev_meter}➔{bill.curr_meter}
-                                </span>{' '}
-                                <b className="text-slate-900">({bill.units_used})</b>
-                              </td>
-                              <td className="py-2 px-2 text-right font-mono">
-                                {bill.water_amount.toFixed(2)}
-                              </td>
-                              <td className="py-2 px-2 text-right font-mono">
-                                {bill.wastewater_amount.toFixed(2)}
-                              </td>
-                              <td className="py-2 px-2 text-right font-mono">
-                                {bill.common_fee.toFixed(2)}
-                              </td>
-                              <td className="py-2 px-2 text-right font-mono">
-                                {bill.special_items !== 0 || bill.late_fee > 0 ? (
-                                  <div>
-                                    <span
-                                      className={`font-bold ${
-                                        bill.special_items < 0 ? 'text-emerald-600' : 'text-amber-700'
-                                      }`}
-                                    >
-                                      {bill.special_items + bill.late_fee > 0
-                                        ? `+${(bill.special_items + bill.late_fee).toFixed(2)}`
-                                        : (bill.special_items + bill.late_fee).toFixed(2)}
-                                    </span>
-                                    {bill.special_items_note && (
-                                      <div className="text-[10px] text-slate-500 truncate max-w-[120px]">
-                                        {bill.special_items_note}
+                              </th>
+                              <th className="py-2.5 px-2 text-left">ห้อง</th>
+                              <th className="py-2.5 px-2 text-right">มิเตอร์ (หน่วย)</th>
+                              <th className="py-2.5 px-2 text-right">ค่าน้ำ (35 บ.)</th>
+                              <th className="py-2.5 px-2 text-right">ค่าบำบัด (5 บ.)</th>
+                              <th className="py-2.5 px-2 text-right">ส่วนกลาง</th>
+                              <th className="py-2.5 px-2 text-right">รายการเพิ่ม/ส่วนลด</th>
+                              <th className="py-2.5 px-2 text-right">ลดหย่อน (เงินสมทบ)</th>
+                              <th className="py-2.5 px-2 text-right font-bold">ยอดสุทธิ</th>
+                              <th className="py-2.5 px-2 text-center">สถานะ LINE</th>
+                              <th className="py-2.5 px-2 text-center">จัดการบิล / พิมพ์บิล / ส่ง LINE</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y text-slate-800">
+                            {filteredRooms.map((room) => {
+                              const bill = billMap[room.room_no];
+                              if (!bill) return null;
+                              const log = logMap[room.room_no];
+                              const isSelected = selectedRooms.includes(room.room_no);
+                              const hasLine = !!room.line_user_id;
+                              const ownerRoomCount = ownerCountMap[(room.owner_name || '').trim()] || 1;
+                              const isMultiOwner = ownerRoomCount > 1;
+
+                              return (
+                                <tr
+                                  key={room.room_no}
+                                  className={`hover:bg-slate-50 ${isSelected ? 'bg-blue-50/40' : ''}`}
+                                >
+                                  <td className="py-2 px-2 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedRooms((prev) => [...prev, room.room_no]);
+                                        } else {
+                                          setSelectedRooms((prev) => prev.filter((id) => id !== room.room_no));
+                                        }
+                                      }}
+                                      className="rounded"
+                                    />
+                                  </td>
+                                  <td className="py-2 px-2">
+                                    <div className="font-bold text-blue-700 font-mono">{bill.formatted_room}</div>
+                                    <div className="text-[10px] text-slate-500 truncate max-w-[110px]">
+                                      {room.owner_name || room.room_type}
+                                    </div>
+                                    {isMultiOwner && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const ownerGroup = ownerGroups.find((g) => g.owner_name === (room.owner_name || '').trim());
+                                          if (ownerGroup) {
+                                            setConsolidatedPreviewOwner(ownerGroup);
+                                          }
+                                        }}
+                                        className="mt-0.5 inline-flex items-center gap-0.5 text-[9.5px] bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 px-1.5 py-0.2 rounded font-bold cursor-pointer"
+                                        title="คลิกเพื่อดูตัวอย่างบิลรวมของเจ้าของท่านนี้"
+                                      >
+                                        <span>👑</span>
+                                        <span>{ownerRoomCount} ห้อง (บิลรวม)</span>
+                                      </button>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono">
+                                    <span className="text-slate-500 text-[11px]">
+                                      {bill.prev_meter}➔{bill.curr_meter}
+                                    </span>{' '}
+                                    <b className="text-slate-900">({bill.units_used})</b>
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono">
+                                    {bill.water_amount.toFixed(2)}
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono">
+                                    {bill.wastewater_amount.toFixed(2)}
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono">
+                                    {bill.common_fee.toFixed(2)}
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono">
+                                    {bill.special_items !== 0 || bill.late_fee > 0 ? (
+                                      <div>
+                                        <span
+                                          className={`font-bold ${
+                                            bill.special_items < 0 ? 'text-emerald-600' : 'text-amber-700'
+                                          }`}
+                                        >
+                                          {bill.special_items + bill.late_fee > 0
+                                            ? `+${(bill.special_items + bill.late_fee).toFixed(2)}`
+                                            : (bill.special_items + bill.late_fee).toFixed(2)}
+                                        </span>
+                                        {bill.special_items_note && (
+                                          <div className="text-[10px] text-slate-500 truncate max-w-[120px]">
+                                            {bill.special_items_note}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-300">-</span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono">
+                                    {bill.contribution_deducted > 0 ? (
+                                      <div className="text-emerald-700 font-bold">
+                                        -{bill.contribution_deducted.toFixed(2)}
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-300">-</span>
+                                    )}
+                                    {Number(room.contribution_credit) > 0 && (
+                                      <div className="text-[10px] text-emerald-600 font-semibold" title="ยอดเงินสมทบสะสมทั้งหมด">
+                                        สะสม: {Number(room.contribution_credit).toLocaleString()} บ.
                                       </div>
                                     )}
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-300">-</span>
-                                )}
-                              </td>
-                              <td className="py-2 px-2 text-right font-mono">
-                                {bill.contribution_deducted > 0 ? (
-                                  <div className="text-emerald-700 font-bold">
-                                    -{bill.contribution_deducted.toFixed(2)}
-                                  </div>
-                                ) : (
-                                  <span className="text-slate-300">-</span>
-                                )}
-                                {Number(room.contribution_credit) > 0 && (
-                                  <div className="text-[10px] text-emerald-600 font-semibold" title="ยอดเงินสมทบสะสมทั้งหมด">
-                                    สะสม: {Number(room.contribution_credit).toLocaleString()} บ.
-                                  </div>
-                                )}
-                              </td>
-                              <td className="py-2 px-2 text-right font-mono font-bold text-blue-700">
-                                {bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                              </td>
-                              <td className="py-2 px-2 text-center">
-                                {log?.line_push_status ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                                    ✅ {log.line_push_status}
-                                  </span>
-                                ) : hasLine ? (
-                                  <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-bold">
-                                    📲 พร้อมส่ง LINE
-                                  </span>
-                                ) : (
-                                  <span className="text-[10px] text-slate-400">
-                                    รหัส: <b className="font-mono">{bill.line_reg_code}</b>
-                                  </span>
-                                )}
-                              </td>
-                              <td className="py-2 px-2 text-center">
-                                <div className="flex items-center justify-center gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => setBillEditRoom(room)}
-                                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg font-bold text-[11px]"
-                                  >
-                                    ✏️ แก้บิล
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenPrint('invoice', [room.room_no])}
-                                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px]"
-                                  >
-                                    🖨️ พิมพ์บิล
-                                  </button>
-                                  {hasLine && (
-                                    <button
-                                      type="button"
-                                      disabled={isPushingLine}
-                                      onClick={() => handlePushLine([room.room_no], 'bill')}
-                                      className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px]"
-                                    >
-                                      📲 ส่ง LINE
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                                  </td>
+                                  <td className="py-2 px-2 text-right font-mono font-bold text-blue-700">
+                                    {bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="py-2 px-2 text-center">
+                                    {log?.line_push_status ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                        ✅ {log.line_push_status}
+                                      </span>
+                                    ) : hasLine ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-bold">
+                                        📲 พร้อมส่ง LINE
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400">
+                                        รหัส: <b className="font-mono">{bill.line_reg_code}</b>
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-2 text-center">
+                                    <div className="flex items-center justify-center gap-1">
+                                      {isMultiOwner && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const ownerGroup = ownerGroups.find((g) => g.owner_name === (room.owner_name || '').trim());
+                                            if (ownerGroup) {
+                                              setConsolidatedPreviewOwner(ownerGroup);
+                                            }
+                                          }}
+                                          className="px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 rounded-lg font-bold text-[11px] cursor-pointer"
+                                          title="ดูตัวอย่างบิลรวมของเจ้าของท่านนี้"
+                                        >
+                                          👑 บิลรวม
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => setBillEditRoom(room)}
+                                        className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg font-bold text-[11px]"
+                                      >
+                                        ✏️ แก้บิล
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenPrint('invoice', [room.room_no])}
+                                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[11px]"
+                                      >
+                                        🖨️ พิมพ์บิล
+                                      </button>
+                                      {hasLine && (
+                                        <button
+                                          type="button"
+                                          disabled={isPushingLine}
+                                          onClick={() => handlePushLine([room.room_no], 'bill')}
+                                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px]"
+                                        >
+                                          📲 ส่ง LINE
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -2440,9 +2846,10 @@ export default function AdminCondoApp() {
                                       type="button"
                                       onClick={() => {
                                         setSelectedRooms(g.rooms.map((r) => r.room_no));
+                                        setBillingViewMode('by_owner');
                                         setActiveTab('billing');
                                       }}
-                                      className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-[10.5px] shadow-xs"
+                                      className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg text-[10.5px] shadow-xs cursor-pointer"
                                     >
                                       🧾 ออกบิลกลุ่มนี้
                                     </button>
@@ -4389,6 +4796,35 @@ export default function AdminCondoApp() {
             fetchData(period);
           }}
         />
+      )}
+
+      {/* MODAL: CONSOLIDATED MULTI-ROOM BILL PREVIEW & DIRECT LINE PUSH */}
+      {consolidatedPreviewOwner && (
+        <ConsolidatedBillPreviewModal
+          ownerName={consolidatedPreviewOwner.owner_name}
+          rooms={consolidatedPreviewOwner.rooms}
+          billMap={billMap}
+          logMap={logMap}
+          period={period}
+          config={config}
+          onClose={() => setConsolidatedPreviewOwner(null)}
+          onSendLine={async (roomNos) => {
+            await handlePushLine(roomNos, 'bill');
+            setConsolidatedPreviewOwner(null);
+          }}
+          onPrint={(roomNos) => {
+            handleOpenPrint('invoice', roomNos);
+          }}
+          isSendingLine={isPushingLine}
+        />
+      )}
+
+      {/* FLOATING TOAST BANNER */}
+      {copiedToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2 border border-slate-700 animate-slideUp">
+          <span className="text-emerald-400 font-bold">✅</span>
+          <span className="text-xs font-medium">{copiedToast}</span>
+        </div>
       )}
     </div>
   );

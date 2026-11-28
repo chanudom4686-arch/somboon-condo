@@ -1,5 +1,5 @@
 // Billing calculation and formatting utilities
-// Version 2.5 - Suggested Late Fee Engine (50 THB/day + 2% compound rollover), 7-Digit LINE Registration Code, paired rooms, and automatic overdue detection
+// Version 2.20 - formatConsolidatedBillText, Bilingual Consolidated Billing Engine, Multi-room Calculations
 
 import { Room, CondoConfig, BillCalculationResult } from '../types/condo';
 
@@ -345,5 +345,113 @@ export function getPrintableCustomItems(noteStr?: string, totalSpecial = 0): { l
       amount: totalSpecial,
     },
   ];
+}
+
+export interface ConsolidatedBillItem {
+  room: Room;
+  bill: BillCalculationResult;
+}
+
+export function formatConsolidatedBillText(
+  ownerName: string,
+  items: ConsolidatedBillItem[],
+  period: string,
+  config: Partial<CondoConfig>
+): {
+  messageText: string;
+  consolidatedTotal: number;
+  totalWaterAmount: number;
+  totalUnitsUsed: number;
+  totalWastewaterAmount: number;
+  totalCommonFee: number;
+  totalLateFee: number;
+  totalOutstanding: number;
+  totalDeductions: number;
+  dueDate: string;
+} {
+  const condoName = config.CONDO_NAME || 'อาคารชุด สมบูรณ์ คอนโดทาวน์ 674';
+  let consolidatedTotal = 0;
+  let totalWaterAmount = 0;
+  let totalUnitsUsed = 0;
+  let totalWastewaterAmount = 0;
+  let totalCommonFee = 0;
+  let totalLateFee = 0;
+  let totalOutstanding = 0;
+  let totalDeductions = 0;
+  let commonDueDate = '';
+
+  const roomBlocks: string[] = [];
+
+  for (const { room, bill } of items) {
+    consolidatedTotal += bill.total_amount;
+    totalWaterAmount += bill.water_amount;
+    totalUnitsUsed += bill.units_used;
+    totalWastewaterAmount += bill.wastewater_amount;
+    totalCommonFee += bill.common_fee;
+    totalLateFee += bill.late_fee;
+    totalOutstanding += bill.outstanding_balance;
+    totalDeductions += (bill.contribution_deducted + bill.prepaid_deducted);
+    if (!commonDueDate && bill.due_date) {
+      commonDueDate = bill.due_date;
+    }
+
+    const extraLines: string[] = [];
+    if (bill.late_fee > 0) {
+      extraLines.push(`• เบี้ยปรับชำระล่าช้า / Late Fee: +${bill.late_fee.toLocaleString()} บ.`);
+    }
+    if (bill.outstanding_balance > 0) {
+      extraLines.push(`• ยอดค้างชำระยกมา / Arrears: +${bill.outstanding_balance.toLocaleString()} บ.`);
+    }
+    if (bill.special_items !== 0) {
+      extraLines.push(
+        `• รายการพิเศษ / Extra (${bill.special_items_note || '-'}): ${bill.special_items > 0 ? '+' : ''}${bill.special_items.toLocaleString()} บ.`
+      );
+    }
+    if (bill.contribution_deducted > 0) {
+      extraLines.push(`• หักเครดิตสมทบทุน / Fund Credit: -${bill.contribution_deducted.toLocaleString()} บ.`);
+    }
+    if (bill.prepaid_deducted > 0) {
+      extraLines.push(`• หักเงินฝากล่วงหน้า / Prepaid Deposit: -${bill.prepaid_deducted.toLocaleString()} บ.`);
+    }
+
+    roomBlocks.push(
+      `🏠 ห้อง / Room: ${formatRoomNo(room.room_no)}\n` +
+      `• ค่าน้ำประปา / Water: ${bill.water_amount.toLocaleString()} บ. (${bill.units_used} Units [${bill.prev_meter}➔${bill.curr_meter}])\n` +
+      `• ค่าบำบัดน้ำเสีย / Wastewater: ${bill.wastewater_amount.toLocaleString()} บ.\n` +
+      `• ค่าส่วนกลาง / Common Fee: ${bill.common_fee.toLocaleString()} บ.` +
+      (extraLines.length > 0 ? '\n' + extraLines.join('\n') : '') +
+      `\n➔ รวมห้องนี้ / Subtotal: ${bill.total_amount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บ. (THB)`
+    );
+  }
+
+  const cleanOwnerName = (ownerName || '').trim() || 'ท่านเจ้าของร่วม / Resident';
+
+  const messageText =
+    `🧾 แจ้งใบแจ้งหนี้รวม ${items.length} ห้องชุด ประจำรอบ ${period}\n` +
+    `Consolidated Invoice for ${items.length} Rooms - Period ${period}\n` +
+    `${condoName}\n` +
+    `ผู้รับ / Resident: ${cleanOwnerName}\n` +
+    `━━━━━━━━━━━━━━\n` +
+    roomBlocks.join('\n\n') + '\n' +
+    `━━━━━━━━━━━━━━\n` +
+    `💰 ยอดรวมทุกห้องที่ต้องชำระ / Total Amount Due: ${consolidatedTotal.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท / THB\n` +
+    `📅 กำหนดชำระภายในวันที่ / Due Date: ${commonDueDate}\n\n` +
+    `🏦 ช่องทางโอนชำระ / Payment Transfer:\n` +
+    `${config.BANK_NAME || 'กสิกรไทย'} เลขบัญชี / A/C: ${config.BANK_ACCOUNT_NO || '-'}\n` +
+    `ชื่อบัญชี / A/C Name: ${config.BANK_ACCOUNT_NAME || condoName}\n\n` +
+    `เมื่อโอนชำระแล้ว รบกวนส่งรูปสลิปในแชตนี้ได้เลยครับ 🙏\nPlease attach transfer slip in this chat after payment.`;
+
+  return {
+    messageText,
+    consolidatedTotal,
+    totalWaterAmount,
+    totalUnitsUsed,
+    totalWastewaterAmount,
+    totalCommonFee,
+    totalLateFee,
+    totalOutstanding,
+    totalDeductions,
+    dueDate: commonDueDate,
+  };
 }
 
